@@ -240,6 +240,13 @@ jobs:
           esac
           curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" | sudo tar -xzf - -C /usr/local/bin oras
           oras version
+          #Install soar (used by recipes)
+          HOST_TRIPLET="$(uname -m)-$(uname -s | tr '[:upper:]' '[:lower:]')"
+          curl -fsSL "https://github.com/pkgforge/soar/releases/download/nightly/soar-${HOST_TRIPLET}" -o /usr/local/bin/soar || {
+            echo "::warning::Failed to download soar, some recipes may fail"
+          }
+          chmod +x /usr/local/bin/soar 2>/dev/null
+          soar --version 2>/dev/null || true
           #Minisign
           if [ -n "${MINISIGN_KEY+x}" ] && [[ "${MINISIGN_KEY}" =~ ^[^[:space:]]+$ ]]; then
            mkdir -pv "${HOME}/.minisign"
@@ -397,7 +404,6 @@ jobs:
           fi
           # Push to GHCR
           SBUILD_ARGS+=("--push")
-          SBUILD_ARGS+=("--ghcr-token" "${GHCR_TOKEN}")
           SBUILD_ARGS+=("--ghcr-repo" "$(echo "${GHCRPKG_LOCAL}" | sed 's|^ghcr.io/||')")
           # Sign if key available
           if [[ -n "${MINISIGN_KEY}" && "${MINISIGN_KEY}" =~ ^[^[:space:]]+$ ]]; then
