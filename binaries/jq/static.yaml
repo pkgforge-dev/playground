@@ -3,6 +3,7 @@ _disabled: false
 
 pkg: jq
 pkg_id: github.com.jqlang.jq
+version: "1.6"
 pkg_type: static
 category:
   - "ConsoleOnly"

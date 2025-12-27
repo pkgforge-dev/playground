@@ -1,0 +1,173 @@
+name: Check Upstream Updates
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+    inputs:
+      package_filter:
+        description: 'Package name filter (regex)'
+        type: string
+        default: ''
+      dry_run:
+        description: 'Dry run (no PRs created)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: update-checker
+  cancel-in-progress: true
+
+jobs:
+  check-updates:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download sbuild-meta
+        run: |
+          curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-meta-x86_64-linux" \
+            -o /usr/local/bin/sbuild-meta || {
+            echo "::warning::Failed to download sbuild-meta, skipping update check"
+            exit 0
+          }
+          chmod +x /usr/local/bin/sbuild-meta
+          sbuild-meta --version
+
+      - name: Check for upstream updates
+        id: check
+        run: |
+          sbuild-meta check-updates \
+            --recipes ./binaries ./packages \
+            --output /tmp/updates.json \
+            --parallel 10 \
+            --timeout 30
+
+          # Count updates
+          if [ -f /tmp/updates.json ]; then
+            UPDATE_COUNT=$(jq 'length' /tmp/updates.json)
+          else
+            UPDATE_COUNT=0
+          fi
+          echo "update_count=${UPDATE_COUNT}" >> $GITHUB_OUTPUT
+
+          if [ "$UPDATE_COUNT" -gt 0 ]; then
+            echo "::notice::Found ${UPDATE_COUNT} packages with upstream updates"
+            jq -r '.[] | "\(.pkg): \(.current_version) -> \(.upstream_version)"' /tmp/updates.json
+          else
+            echo "::notice::No updates found"
+          fi
+
+      - name: Create update PRs
+        if: steps.check.outputs.update_count > 0 && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          jq -c '.[]' /tmp/updates.json | while read -r pkg_data; do
+            pkg_name=$(echo "$pkg_data" | jq -r '.pkg')
+            pkg_id=$(echo "$pkg_data" | jq -r '.pkg_id')
+            recipe_path=$(echo "$pkg_data" | jq -r '.recipe_path')
+            old_ver=$(echo "$pkg_data" | jq -r '.current_version')
+            new_ver=$(echo "$pkg_data" | jq -r '.upstream_version')
+
+            # Sanitize version for branch name
+            safe_ver=$(echo "$new_ver" | tr -cs '[:alnum:].-' '-' | sed 's/-$//')
+            branch="bot/update-${pkg_name}-${safe_ver}"
+
+            # Check if PR already exists
+            if gh pr list --head "$branch" --json number | jq -e 'length > 0' > /dev/null 2>&1; then
+              echo "::notice::PR already exists for $pkg_name $new_ver, skipping"
+              continue
+            fi
+
+            # Check if branch exists remotely
+            if git ls-remote --heads origin "$branch" | grep -q "$branch"; then
+              echo "::notice::Branch $branch already exists, skipping"
+              continue
+            fi
+
+            echo "::group::Creating PR for $pkg_name"
+
+            # Create branch from main
+            git checkout main
+            git pull origin main
+            git checkout -b "$branch"
+
+            # Update version in recipe
+            if [ -f "$recipe_path" ]; then
+              # Check if version field exists
+              if grep -q "^version:" "$recipe_path"; then
+                # Update existing version
+                sed -i "s/^version:.*/version: \"${new_ver}\"/" "$recipe_path"
+              else
+                # Add version field after pkg_id
+                sed -i "/^pkg_id:/a version: \"${new_ver}\"" "$recipe_path"
+              fi
+
+              git add "$recipe_path"
+              git commit -m "chore(bot): update ${pkg_name} to ${new_ver}
+
+Automated update detected via pkgver script.
+
+- Package: ${pkg_name}
+- Previous: ${old_ver}
+- Updated: ${new_ver}"
+
+              git push origin "$branch"
+
+              gh pr create \
+                --title "[bot] Update ${pkg_name}: ${old_ver} -> ${new_ver}" \
+                --body "## Automated Update
+
+This PR updates **${pkg_name}** to version **${new_ver}**.
+
+| Field | Value |
+|-------|-------|
+| Package | \`${pkg_name}\` |
+| Package ID | \`${pkg_id}\` |
+| Previous Version | \`${old_ver}\` |
+| New Version | \`${new_ver}\` |
+| Recipe | \`${recipe_path}\` |
+
+### What to do
+
+1. Review the changes
+2. Merge if the update looks correct
+3. The build will be triggered automatically
+
+---
+*This PR was created automatically by the update checker bot.*" \
+                --label "bot,update" \
+                --head "$branch" \
+                --base main
+
+              echo "::notice::Created PR for $pkg_name"
+            else
+              echo "::warning::Recipe file not found: $recipe_path"
+            fi
+
+            echo "::endgroup::"
+
+            # Return to main for next iteration
+            git checkout main
+
+            # Rate limiting - avoid hitting GitHub API limits
+            sleep 2
+          done
+
+      - name: Upload updates report
+        if: always() && steps.check.outputs.update_count > 0
+        uses: actions/upload-artifact@v4
+        with:
+          name: updates-report
+          path: /tmp/updates.json
+          retention-days: 7
