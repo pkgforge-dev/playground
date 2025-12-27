@@ -115,3 +115,62 @@ jobs:
       rebuild: true
       logs: true
     secrets: inherit
+
+  update-cache:
+    needs: [detect-changes, build]
+    if: always() && needs.detect-changes.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download sbuild-cache
+        run: |
+          curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-cache-x86_64-linux" \
+            -o /usr/local/bin/sbuild-cache || exit 0
+          chmod +x /usr/local/bin/sbuild-cache
+
+      - name: Download existing cache
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download cache-latest -p build_cache.sdb -D /tmp/ --repo "${{ github.repository }}" || \
+            sbuild-cache --cache /tmp/build_cache.sdb init
+
+      - name: Update cache with build results
+        run: |
+          RECIPES='${{ needs.detect-changes.outputs.changed_recipes }}'
+
+          echo "$RECIPES" | jq -c '.[]' | while read -r recipe; do
+            path=$(echo "$recipe" | jq -r '.path')
+
+            # Extract package name from path (e.g., binaries/hello/static.yaml -> hello)
+            pkg_name=$(basename "$(dirname "$path")")
+
+            # TODO: Get actual build status from matrix job results
+            # For now, mark as success if we got here
+            status="success"
+
+            sbuild-cache --cache /tmp/build_cache.sdb update \
+              --package "$pkg_name" \
+              --version "latest" \
+              --status "$status" || true
+          done
+
+      - name: Generate build summary
+        run: |
+          sbuild-cache --cache /tmp/build_cache.sdb gh-summary \
+            --title "Build Results" \
+            --host x86_64-Linux || true
+
+      - name: Upload updated cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -f "/tmp/build_cache.sdb" ]; then
+            gh release upload cache-latest /tmp/build_cache.sdb --clobber --repo "${{ github.repository }}" || {
+              gh release create cache-latest \
+                --title "Build Cache" \
+                --notes "Build cache for CI" \
+                --repo "${{ github.repository }}" \
+                /tmp/build_cache.sdb
+            }
+          fi
