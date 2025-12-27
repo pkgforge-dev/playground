@@ -5,7 +5,8 @@ pkg: hello
 pkg_id: test.hello.static
 pkg_type: static
 category:
-  - utility
+  - "ConsoleOnly"
+  - "Utility"
 description: Simple hello world static binary for testing bincache
 homepage:
   - https://github.com/pkgforge/sbuilder

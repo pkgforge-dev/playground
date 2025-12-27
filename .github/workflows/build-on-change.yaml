@@ -55,11 +55,15 @@ jobs:
               exit 1
             fi
           else
-            # Detect changes from git diff
+            # Detect changes from git diff or find all recipes
             if [ "${{ github.event_name }}" == "push" ]; then
               CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- 'binaries/**/*.yaml' 'packages/**/*.yaml' 2>/dev/null || true)
             elif [ "${{ github.event_name }}" == "pull_request" ]; then
               CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'binaries/**/*.yaml' 'packages/**/*.yaml' 2>/dev/null || true)
+            elif [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+              # No specific recipe, build all recipes
+              echo "::notice::No recipe specified, building all recipes"
+              CHANGED_FILES=$(find binaries packages -name '*.yaml' -type f 2>/dev/null || true)
             else
               CHANGED_FILES=""
             fi

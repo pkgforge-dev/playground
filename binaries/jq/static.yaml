@@ -5,7 +5,8 @@ pkg: jq
 pkg_id: github.com.jqlang.jq
 pkg_type: static
 category:
-  - utility
+  - "ConsoleOnly"
+  - "Utility"
 description: Command-line JSON processor
 homepage:
   - https://jqlang.github.io/jq/

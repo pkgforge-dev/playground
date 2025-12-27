@@ -5,7 +5,8 @@ pkg: hello-appimage
 pkg_id: test.hello.appimage
 pkg_type: appimage
 category:
-  - utility
+  - "ConsoleOnly"
+  - "Utility"
 description: Simple hello world AppImage for testing pkgcache
 homepage:
   - https://github.com/pkgforge/sbuilder
