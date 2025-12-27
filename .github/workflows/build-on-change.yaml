@@ -23,7 +23,9 @@ on:
         default: true
 
 permissions:
+  attestations: write
   contents: write
+  id-token: write
   packages: write
 
 concurrency:
