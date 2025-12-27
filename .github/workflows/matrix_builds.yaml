@@ -1,498 +1,395 @@
-name: 🧰🛠️ Build Package 📦📀
+name: Build Package
 
 permissions:
+  attestations: write
   contents: write
+  id-token: write
+  packages: write
 
 on:
   workflow_call:
     inputs:
       host:
-        description: Host (Arch+OS) [aarch64-Linux,x86_64-Linux] (ALL)
+        description: "Target host [aarch64-Linux, x86_64-Linux, riscv64-Linux, ALL]"
         type: string
         default: "ALL"
-
       sbuild-url:
-        description: Raw URL where SBUILD is located
+        description: "Raw URL of SBUILD recipe"
         type: string
         required: true
-
       ghcr-url:
-        description: Root GHCR URL under which this package will be pushed
+        description: "GHCR URL for package push"
         type: string
         required: true
-
       pkg-family:
-        description: Package Family
+        description: "Package family name"
         type: string
         required: true
-
-      banner:
-        description: Disable PkgForge Branding in LogFiles [Default ==> False (Enabled)]
-        type: boolean
-        default: true
-
       debug:
-        description: Debug Mode (Verbose with set -x) [Default ==> False]
+        description: "Enable debug mode"
         type: boolean
         default: false
-
       logs:
-        description: Keep Logs? (Preserves Working Dir) [Default ==> True]
+        description: "Keep build logs"
         type: boolean
         default: true
-
       rebuild:
-        description: Force Rebuild this Package? [Default ==> True]
+        description: "Force rebuild"
+        type: boolean
+        default: true
+      build-deps:
+        description: "Build dependencies to install (comma-separated: nix,docker,go,rust)"
+        type: string
+        default: ""
+      metadata-release:
+        description: "Create soar-nest metadata release (for third-party use)"
         type: boolean
         default: true
 
 jobs:
-  preprocess:
+  setup-matrix:
     runs-on: ubuntu-latest
     outputs:
-      runner_matrix: ${{ steps.generate-matrix.outputs.runner_matrix }}
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
-      - name: Presetup
-        id: generate-matrix
+      - name: Generate build matrix
+        id: set-matrix
         run: |
-          ##presets
-          set +x ; set +e
-          #-------------#
-          pushd "$(mktemp -d)" &>/dev/null
-           echo '[' > "./MATRIX.json.tmp"
-            if [[ "${{ inputs.host }}" == "ALL" ]]; then
-              echo '{"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm", "ghcr_pkg": "${{ inputs.ghcr-url }}"},' >> "./MATRIX.json.tmp"
-              echo '{"host": "x86_64-Linux", "runner": "ubuntu-latest", "ghcr_pkg": "${{ inputs.ghcr-url }}"}' >> "./MATRIX.json.tmp"
-            elif [[ "${{ inputs.host }}" == "aarch64-Linux" ]]; then
-              echo '{"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm", "ghcr_pkg": "${{ inputs.ghcr-url }}"}' >> "./MATRIX.json.tmp"
-            elif [[ "${{ inputs.host }}" == "x86_64-Linux" ]]; then
-              echo '{"host": "x86_64-Linux", "runner": "ubuntu-latest", "ghcr_pkg": "${{ inputs.ghcr-url }}"}' >> "./MATRIX.json.tmp"
-            fi
-           echo ']' >> "./MATRIX.json.tmp"
-           jq 'unique_by(.runner)' "./MATRIX.json.tmp" | jq . > "./MATRIX.json"
-           ESCAPED_MATRIX="$(cat "./MATRIX.json" | jq -c .)"
-           echo "runner_matrix=${ESCAPED_MATRIX}" >> "${GITHUB_OUTPUT}"
-          popd &>/dev/null
-        continue-on-error: false
-
-      - name: Sanity Check Input JSON
-        run: |
-          echo '${{ steps.generate-matrix.outputs.runner_matrix }}' | jq .
-        continue-on-error: true
+          case "${{ inputs.host }}" in
+            "ALL")
+              MATRIX='[
+                {"host": "x86_64-Linux", "runner": "ubuntu-latest"},
+                {"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm"},
+                {"host": "riscv64-Linux", "runner": "ubuntu-24.04-arm"}
+              ]'
+              ;;
+            "x86_64-Linux")
+              MATRIX='[{"host": "x86_64-Linux", "runner": "ubuntu-latest"}]'
+              ;;
+            "aarch64-Linux")
+              MATRIX='[{"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm"}]'
+              ;;
+            "riscv64-Linux")
+              MATRIX='[{"host": "riscv64-Linux", "runner": "ubuntu-24.04-arm"}]'
+              ;;
+            *)
+              echo "::error::Invalid host: ${{ inputs.host }}"
+              exit 1
+              ;;
+          esac
+          echo "matrix=$(echo "$MATRIX" | jq -c .)" >> "$GITHUB_OUTPUT"
 
   build:
-    needs: [preprocess]
+    needs: setup-matrix
     strategy:
       fail-fast: false
       matrix:
-        package: ${{ fromJson(needs.preprocess.outputs.runner_matrix) }}
-    name: "${{ matrix.package.host }} ==> (${{ matrix.package.ghcr_pkg }})"
-    runs-on: "${{ matrix.package.runner }}"
-    timeout-minutes: 200
-    permissions:
-      attestations: write #Needed for Build Provenance & Attestations
-      contents: write #Needed to create Release
-      id-token: write #Needed for Build Provenance & Attestations
-      packages: write #Needed to push to ghcr
+        target: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
+    name: "${{ matrix.target.host }}"
+    runs-on: "${{ matrix.target.runner }}"
+    timeout-minutes: 180
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      GIT_TERMINAL_PROMPT: 0
     steps:
-      - name: Exit if not called
-        env:
-          GH_TOKEN: "${{ github.token }}"
-        run: |
-          ##presets
-          set +x ; set +e
-          #-------------#
-          if [[ "$(uname -m | tr -d '[:space:]')" == "aarch64" ]]; then
-            if [[ "${{ inputs.host }}" != "ALL" ]] && [[ "${{ inputs.host }}" != "aarch64-Linux" ]]; then
-              echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-            fi
-          elif [[ "$(uname -m | tr -d '[:space:]')" == "x86_64" ]]; then
-            if [[ "${{ inputs.host }}" != "ALL" ]] && [[ "${{ inputs.host }}" != "x86_64-Linux" ]]; then
-              echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-            fi
-          fi
-        continue-on-error: false
-
-      - name: Validate Required Secrets [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        env:
-          RO_GHTOKEN: "${{ secrets.RO_GHTOKEN }}" #The existing GITHUB_TOKEN is over privileged
-          RO_GLTOKEN: "${{ secrets.RO_GLTOKEN }}"
-          MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}" #Will be skipped silently
-        run: |
-          ##presets
-          set +x ; set +e
-          #-------------#
-          # Check if any of the required secrets are missing
-          if [ -z "${RO_GHTOKEN##*[[:space:]]}" ] || [ -z "${RO_GLTOKEN##*[[:space:]]}" ] || [ -z "${MINISIGN_KEY##*[[:space:]]}" ]; then
-            echo "::warning::One or more required secrets are missing"
-            [ -z "${RO_GHTOKEN##*[[:space:]]}" ] && echo "- RO_GHTOKEN is missing (Needed for GitHub Public API Requests)"
-            [ -z "${RO_GLTOKEN##*[[:space:]]}" ] && echo "- RO_GLTOKEN is missing (Needed for GitLab Public API Requests)"
-            [ -z "${MINISIGN_KEY##*[[:space:]]}" ] && echo "- MINISIGN_KEY is missing (Needed for Signing Artifacts)"
-          fi
-        continue-on-error: false
-
-      - name: Parse Input [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        env:
-          GH_TOKEN: "${{ github.token }}"
-          GITHUB_TOKEN: "${{ github.token }}"
-        run: |
-          ##presets
-          set +x ; set +e
-          #-------------#
-          export HOST_TRIPLET="$(uname -m)-$(uname -s)"
-          export "GH_PAGER="
-          gh config set prompt disabled &>/dev/null
-          ##Banner
-           if [ "${{ inputs.banner }}" == "false" ] ; then
-             export BANNER="0"
-           else
-             export BANNER="1"
-           fi
-           echo "BANNER=${BANNER}" >> "${GITHUB_ENV}"
-          ##Debug
-           if [ "${{ inputs.debug }}" == "true" ] ; then
-             export DEBUG="1"
-           else
-             export DEBUG="0"
-           fi
-           echo "DEBUG=${DEBUG}" >> "${GITHUB_ENV}"
-          ##GITHUB_REPOSITORY [Exists?]
-           if [[ -z "${GITHUB_REPOSITORY//[[:space:]]/}" ]]; then
-              echo -e "\n[✗] FATAL: Failed to Get \$GITHUB_REPOSITORY\n"
-              echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-             exit 1
-           elif echo "${GITHUB_REPOSITORY}" | grep -qiE 'github.com'; then
-              GITHUB_REPOSITORY="$(echo "${GITHUB_REPOSITORY}" | sed -E 's|^(https://github.com/)?([^/]+/[^/]+).*|\2|' | tr -d '[:space:]')"
-              export GITHUB_REPOSITORY
-              echo "GITHUB_REPOSITORY=${GITHUB_REPOSITORY}" >> "${GITHUB_ENV}"
-           fi
-          ##GITHUB_REPOSITORY [Is a Fork?]
-           if [[ "$(gh repo view "${GITHUB_REPOSITORY}" --json isFork -q '.isFork' | tr -d '[:space:]')" == "true" ]]; then
-              echo -e "\n[✗] FATAL: \$GITHUB_REPOSITORY must NOT be a Fork\n"
-              echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-             exit 1
-           fi
-          ##GHCRPKG_URL
-           GHCRPKG_LOCAL="$(echo "${{ inputs.ghcr-url }}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-           export GHCRPKG_LOCAL
-           if echo "${GHCRPKG_LOCAL}" | grep -qiE '^ghcr\.io(/|$)'; then
-             echo "GHCRPKG_LOCAL=${GHCRPKG_LOCAL}" >> "${GITHUB_ENV}"
-           else
-             echo -e "\n[✗] FATAL: ${GHCRPKG_LOCAL} is NOT a Valid GHCR Value\n"
-             echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-            exit 1
-           fi
-          ##Logs
-           if [ "${{ inputs.logs }}" == "false" ] ; then
-             export KEEP_LOGS="NO"
-           else
-             export KEEP_LOGS="YES"
-             export GITHUB_TEST_BUILD="YES"
-           fi
-           echo "KEEP_LOGS=${KEEP_LOGS}" >> "${GITHUB_ENV}"
-           echo "GITHUB_TEST_BUILD=${GITHUB_TEST_BUILD}" >> "${GITHUB_ENV}"
-          ##PKG_FAMILY_LOCAL
-           PKG_FAMILY_LOCAL="$(echo "${{ inputs.pkg-family }}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-           export PKG_FAMILY_LOCAL
-           echo "PKG_FAMILY_LOCAL=${PKG_FAMILY_LOCAL}" >> "${GITHUB_ENV}"
-          ##Rebuild
-           if [ "${{ inputs.rebuild }}" == "false" ] ; then
-             export SBUILD_REBUILD="false"
-           else
-             export SBUILD_REBUILD="true"
-           fi
-           echo "SBUILD_REBUILD=${SBUILD_REBUILD}" >> "${GITHUB_ENV}"
-           ##SBUILD_URL
-           SBUILD_FILE_URL="$(echo "${{ inputs.sbuild-url }}" | tr -d '[:space:]')"
-           export SBUILD_FILE_URL
-           echo "SBUILD_FILE_URL=${SBUILD_FILE_URL}" >> "${GITHUB_ENV}"
-        continue-on-error: false
-
-      - name: Setup Env [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        env:
-          MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}" #Private Key is saved locally
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        run: |
-          ##presets
-          set +x ; set +e
-          #-------------#
-          ##CoreUtils
-          export DEBIAN_FRONTEND="noninteractive"
-          echo "DEBIAN_FRONTEND=${DEBIAN_FRONTEND}" >> "${GITHUB_ENV}"
-          sudo apt update -y -qq
-          #https://github.com/ilikenwf/apt-fast?tab=readme-ov-file#quick-install
-          bash -c "$(curl -qfsSL 'https://raw.githubusercontent.com/ilikenwf/apt-fast/master/quick-install.sh')"
-          if ! command -v apt-fast &> /dev/null; then
-             echo -e "\n[-] docker NOT Found\n"
-             echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-             exit 1
-          fi
-          sudo apt-fast install apt-transport-https apt-utils bc ca-certificates coreutils curl dos2unix fdupes git-lfs gnupg2 \
-          jq moreutils p7zip-full rename rsync software-properties-common texinfo tmux torsocks util-linux wget zsync -y -qq 2>/dev/null
-          sudo apt-fast update -y -qq 2>/dev/null
-          #Install oras for GHCR push
-          ORAS_VERSION="1.2.0"
-          case "$(uname -m)" in
-            x86_64) ORAS_ARCH="amd64" ;;
-            aarch64) ORAS_ARCH="arm64" ;;
-          esac
-          curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" | sudo tar -xzf - -C /usr/local/bin oras
-          oras version
-          #Install soar (used by recipes)
-          HOST_TRIPLET="$(uname -m)-$(uname -s | tr '[:upper:]' '[:lower:]')"
-          curl -fsSL "https://github.com/pkgforge/soar/releases/download/nightly/soar-${HOST_TRIPLET}" -o /usr/local/bin/soar || {
-            echo "::warning::Failed to download soar, some recipes may fail"
-          }
-          chmod +x /usr/local/bin/soar 2>/dev/null
-          soar --version 2>/dev/null || true
-          #Minisign
-          if [ -n "${MINISIGN_KEY+x}" ] && [[ "${MINISIGN_KEY}" =~ ^[^[:space:]]+$ ]]; then
-           mkdir -pv "${HOME}/.minisign"
-           echo "${{ secrets.MINISIGN_SIGKEY }}" > "${HOME}/.minisign/minisign.key"
-          fi
-          ##tmp
-          SYSTMP="$(dirname $(mktemp -u))" && export SYSTMP="${SYSTMP}"
-          #GH ENV
-          echo "SYSTMP=${SYSTMP}" >> "${GITHUB_ENV}"
-          echo "GHA_MODE=MATRIX" >> "${GITHUB_ENV}"
-          echo "GIT_TERMINAL_PROMPT=0" >> "${GITHUB_ENV}"
-          echo "GIT_ASKPASS=/bin/echo" >> "${GITHUB_ENV}"
-          echo "GH_PAGER=" >> "${GITHUB_ENV}"
-          gh config set prompt disabled
-          git config --global "credential.helper" store
-          git config --global "user.email" "AjamX101@gmail.com"
-          git config --global "user.name" "Azathothas"
-          ##User-Agent
-          USER_AGENT="$(curl -qfsSL 'https://raw.githubusercontent.com/pkgforge/devscripts/refs/heads/main/Misc/User-Agents/ua_chrome_macos_latest.txt')" && export USER_AGENT="${USER_AGENT}"
-          echo "USER_AGENT=${USER_AGENT}" >> "${GITHUB_ENV}"
-          ##Wget
-          echo 'progress = dot:giga' | sudo tee -a "/etc/wgetrc"
-          echo 'progress = dot:giga' | tee -a "${HOME}/.wgetrc"
-        continue-on-error: true
-
-      - name: Create Metadata Tag [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        env:
-          GH_TOKEN: "${{ github.token }}"
-          GITHUB_TOKEN: "${{ github.token }}"
-        run: |
-          ##presets
-          set +x ; set +e
-          #-------------#
-          METADATA_TAG="soar-nest"
-          export METADATA_TAG="$(echo "${METADATA_TAG}" | tr -d '[:space:]')"
-          echo "METADATA_TAG=${METADATA_TAG}" >> "${GITHUB_ENV}"
-          echo "GH_PAGER=" >> "${GITHUB_ENV}"
-          gh config set prompt disabled
-          gh release create "${METADATA_TAG}" --repo "${GITHUB_REPOSITORY}" --title "${METADATA_TAG}" --prerelease
-          sleep 3 ; gh release view "${METADATA_TAG}" --repo "${GITHUB_REPOSITORY}"
-          METADATA_TAG_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${METADATA_TAG}"
-          echo METADATA_TAG_URL="${METADATA_TAG_URL}" >> "${GITHUB_ENV}"
-          METADATA_TAG_STATUS="$(curl -X "HEAD" -qfsSL "${METADATA_TAG_URL}" -I | sed -n 's/^[[:space:]]*HTTP\/[0-9.]*[[:space:]]\+\([0-9]\+\).*/\1/p' | tail -n1 | tr -d '[:space:]')"
-          if echo "${METADATA_TAG_STATUS}" | grep -qi '200$'; then
-            export METADATA_DIR="/tmp/PKG_METADATA"
-            echo "METADATA_DIR=${METADATA_DIR}" >> "${GITHUB_ENV}"
-            mkdir -pv "${METADATA_DIR}"
-            echo "CONTINUE_GHRUN=TRUE" >> "${GITHUB_ENV}"
-          else
-            echo -e "\n[✗] FATAL: Failed to Create ${METADATA_TAG} <== [Release Tag]\n"
-            echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-           exit 1
-          fi
-        continue-on-error: true
-
-      - name: Disable apparmor_restrict_unprivileged_userns #Required for fuse (Runimage etc)
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        run: |
-          #presets
-          set +x ; set +e
-          #-------------#
-          echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee "/etc/sysctl.d/98-apparmor-unuserns.conf"
-          echo "0" | sudo tee "/proc/sys/kernel/apparmor_restrict_unprivileged_userns"
-          sudo service procps restart
-          sudo sysctl -p "/etc/sysctl.conf"
-        continue-on-error: true
-
-      - name: Download sbuild [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        env:
-          GH_TOKEN: "${{ github.token }}"
-        run: |
-          #Presets
-          set +x ; set +e
-          #--------------#
-          HOST_TRIPLET="$(uname -m)-$(uname -s | tr '[:upper:]' '[:lower:]')"
-          echo "HOST_TRIPLET=${HOST_TRIPLET}" >> "${GITHUB_ENV}"
-          # Download sbuild from GitHub releases
-          SBUILD_URL="https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-${HOST_TRIPLET}"
-          echo "[+] Downloading sbuild from ${SBUILD_URL}"
-          curl -qfsSL "${SBUILD_URL}" -o "${SYSTMP}/sbuild" || {
-            # Fallback to gh release download
-            echo "[!] Direct download failed, trying gh release..."
-            gh release download latest --repo pkgforge/sbuilder -p "sbuild-${HOST_TRIPLET}" -O "${SYSTMP}/sbuild" || {
-              echo -e "\n[✗] FATAL: Failed to Download sbuild\n"
-              echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-              exit 1
-            }
-          }
-          if [[ ! -s "${SYSTMP}/sbuild" || $(stat -c%s "${SYSTMP}/sbuild") -le 1000 ]]; then
-            echo -e "\n[✗] FATAL: Downloaded sbuild is too small or empty\n"
-            echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-            exit 1
-          fi
-          chmod +x "${SYSTMP}/sbuild"
-          # Verify it runs
-          "${SYSTMP}/sbuild" --version || {
-            echo -e "\n[✗] FATAL: sbuild binary is not executable\n"
-            echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-            exit 1
-          }
-        continue-on-error: false
-
-      - name: Check Host Compatibility [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        run: |
-          #Presets
-          set +x ; set +e
-          #--------------#
-          # Use sbuild info to check if recipe supports this host
-          if ! "${SYSTMP}/sbuild" info "${SBUILD_FILE_URL}" --check-host "${HOST_TRIPLET}"; then
-            echo -e "\n[✗] WARNING: Recipe is NOT Supported on ${HOST_TRIPLET}\n"
-            echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-          fi
-        continue-on-error: false
-
-      - name: BUILD (${{ env.GHCRPKG_LOCAL }}) [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
+      - name: Setup environment
+        id: setup
         env:
           GHCR_TOKEN: "${{ github.token }}"
-          GITHUB_TOKEN: "${{ secrets.RO_GHTOKEN }}"
+          MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}"
+        run: |
+          set -euo pipefail
+
+          # Determine host triplet
+          HOST_TRIPLET="${{ matrix.target.host }}"
+          echo "HOST_TRIPLET=${HOST_TRIPLET}" >> "$GITHUB_ENV"
+
+          # For RISC-V, we'll use QEMU on ARM runner
+          if [[ "$HOST_TRIPLET" == "riscv64-Linux" ]]; then
+            echo "QEMU_MODE=true" >> "$GITHUB_ENV"
+            NATIVE_ARCH="aarch64"
+          else
+            NATIVE_ARCH="$(uname -m)"
+          fi
+
+          # Temp directory
+          SYSTMP="$(mktemp -d)"
+          echo "SYSTMP=${SYSTMP}" >> "$GITHUB_ENV"
+
+          # Install base packages
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            ca-certificates curl git jq p7zip-full rsync wget zstd
+
+          # Install oras
+          ORAS_VERSION="1.2.2"
+          case "$NATIVE_ARCH" in
+            x86_64)  ORAS_ARCH="amd64" ;;
+            aarch64) ORAS_ARCH="arm64" ;;
+          esac
+          curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" \
+            | sudo tar -xzf - -C /usr/local/bin oras
+          oras version
+
+          # Install soar
+          SOAR_TRIPLET="${NATIVE_ARCH}-$(uname -s | tr '[:upper:]' '[:lower:]')"
+          curl -fsSL "https://github.com/pkgforge/soar/releases/download/latest/soar-${SOAR_TRIPLET}" \
+            -o /tmp/soar && sudo mv /tmp/soar /usr/local/bin/soar && sudo chmod +x /usr/local/bin/soar
+          soar --version
+
+          # Install sbuild
+          curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-${SOAR_TRIPLET}" \
+            -o "${SYSTMP}/sbuild" && chmod +x "${SYSTMP}/sbuild"
+          "${SYSTMP}/sbuild" --version
+
+          # Setup minisign key if available
+          if [[ -n "${MINISIGN_KEY:-}" ]]; then
+            mkdir -p "${HOME}/.minisign"
+            echo "${{ secrets.MINISIGN_SIGKEY }}" > "${HOME}/.minisign/minisign.key"
+            echo "SIGN_ENABLED=true" >> "$GITHUB_ENV"
+          fi
+
+          # GHCR login
+          echo "${GHCR_TOKEN}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          # Parse GHCR URL
+          GHCR_REPO="$(echo "${{ inputs.ghcr-url }}" | sed 's|^ghcr.io/||' | tr '[:upper:]' '[:lower:]')"
+          echo "GHCR_REPO=${GHCR_REPO}" >> "$GITHUB_ENV"
+
+          # For RISC-V, setup QEMU
+          if [[ "${QEMU_MODE:-}" == "true" ]]; then
+            sudo apt-get install -y qemu-user-static
+            # Download riscv64 sbuild
+            curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-riscv64-linux" \
+              -o "${SYSTMP}/sbuild-riscv64" && chmod +x "${SYSTMP}/sbuild-riscv64"
+            # Download riscv64 soar
+            curl -fsSL "https://github.com/pkgforge/soar/releases/download/latest/soar-riscv64-linux" \
+              -o /tmp/soar-riscv64 && sudo mv /tmp/soar-riscv64 /usr/local/bin/soar-riscv64 && sudo chmod +x /usr/local/bin/soar-riscv64
+          fi
+
+      - name: Create metadata release (soar-nest)
+        if: inputs.metadata-release == true
+        env:
+          GH_TOKEN: "${{ github.token }}"
+        run: |
+          METADATA_TAG="soar-nest"
+          echo "METADATA_TAG=${METADATA_TAG}" >> "$GITHUB_ENV"
+
+          # Create release if it doesn't exist
+          if ! gh release view "$METADATA_TAG" --repo "${{ github.repository }}" &>/dev/null; then
+            gh release create "$METADATA_TAG" \
+              --repo "${{ github.repository }}" \
+              --title "$METADATA_TAG" \
+              --notes "Metadata release for soar integration" \
+              --prerelease
+          fi
+
+          METADATA_DIR="/tmp/PKG_METADATA"
+          mkdir -p "$METADATA_DIR"
+          echo "METADATA_DIR=${METADATA_DIR}" >> "$GITHUB_ENV"
+        continue-on-error: true
+
+      - name: Install build dependencies
+        if: inputs.build-deps != ''
+        env:
+          GITHUB_TOKEN: "${{ github.token }}"
+        run: |
+          set -euo pipefail
+          BUILD_DEPS="${{ inputs.build-deps }}"
+
+          # Parse comma-separated deps
+          IFS=',' read -ra DEPS <<< "$BUILD_DEPS"
+
+          for dep in "${DEPS[@]}"; do
+            dep="$(echo "$dep" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+            echo "::group::Installing $dep"
+
+            case "$dep" in
+              nix)
+                # Install Nix
+                if ! command -v nix &>/dev/null; then
+                  curl -fsSL https://nixos.org/nix/install | sh -s -- --daemon --yes
+                  # Source nix
+                  if [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
+                    source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+                  fi
+                fi
+                # Configure nix
+                echo "access-tokens = github.com=${GITHUB_TOKEN}" | sudo tee -a /etc/nix/nix.conf
+                export NIXPKGS_ALLOW_BROKEN=1
+                export NIXPKGS_ALLOW_UNFREE=1
+                export NIXPKGS_ALLOW_INSECURE=1
+                export NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1
+                echo "NIXPKGS_ALLOW_BROKEN=1" >> "$GITHUB_ENV"
+                echo "NIXPKGS_ALLOW_UNFREE=1" >> "$GITHUB_ENV"
+                echo "NIXPKGS_ALLOW_INSECURE=1" >> "$GITHUB_ENV"
+                echo "NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1" >> "$GITHUB_ENV"
+                nix --version
+                ;;
+
+              docker)
+                # Install Docker
+                if ! command -v docker &>/dev/null; then
+                  curl -fsSL https://get.docker.com | sudo sh
+                fi
+                sudo usermod -aG docker "$USER" || true
+                sudo systemctl start docker || sudo service docker start || true
+                docker --version
+                ;;
+
+              go|golang)
+                # Install Go
+                if ! command -v go &>/dev/null; then
+                  GO_VERSION="1.23.4"
+                  case "$(uname -m)" in
+                    x86_64)  GO_ARCH="amd64" ;;
+                    aarch64) GO_ARCH="arm64" ;;
+                    riscv64) GO_ARCH="riscv64" ;;
+                  esac
+                  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" | sudo tar -xzf - -C /usr/local
+                  echo "/usr/local/go/bin" >> "$GITHUB_PATH"
+                  echo "${HOME}/go/bin" >> "$GITHUB_PATH"
+                fi
+                /usr/local/go/bin/go version || go version
+                ;;
+
+              rust|cargo)
+                # Install Rust
+                if ! command -v cargo &>/dev/null; then
+                  curl -fsSL https://sh.rustup.rs | sh -s -- -y --no-modify-path
+                  source "${HOME}/.cargo/env"
+                  echo "${HOME}/.cargo/bin" >> "$GITHUB_PATH"
+                fi
+                rustc --version && cargo --version
+                ;;
+
+              zig)
+                # Install Zig
+                if ! command -v zig &>/dev/null; then
+                  ZIG_VERSION="0.13.0"
+                  case "$(uname -m)" in
+                    x86_64)  ZIG_ARCH="x86_64" ;;
+                    aarch64) ZIG_ARCH="aarch64" ;;
+                    riscv64) ZIG_ARCH="riscv64" ;;
+                  esac
+                  curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz" \
+                    | sudo tar -xJf - -C /usr/local
+                  sudo ln -sf "/usr/local/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}/zig" /usr/local/bin/zig
+                fi
+                zig version
+                ;;
+
+              python|pip)
+                # Python/pip should be available, just upgrade
+                sudo apt-get install -y python3-pip python3-venv
+                pip3 install --upgrade pip
+                python3 --version && pip3 --version
+                ;;
+
+              build-essential)
+                # Install build tools
+                sudo apt-get install -y build-essential cmake autoconf automake libtool pkg-config
+                ;;
+
+              *)
+                echo "::warning::Unknown dependency: $dep"
+                ;;
+            esac
+
+            echo "::endgroup::"
+          done
+
+      - name: Check host compatibility
+        run: |
+          SBUILD="${SYSTMP}/sbuild"
+          if [[ "${QEMU_MODE:-}" == "true" ]]; then
+            SBUILD="${SYSTMP}/sbuild-riscv64"
+          fi
+
+          if ! "$SBUILD" info "${{ inputs.sbuild-url }}" --check-host "${HOST_TRIPLET}"; then
+            echo "::warning::Recipe not supported on ${HOST_TRIPLET}"
+            echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Disable AppArmor restrictions
+        if: env.SKIP_BUILD != 'true'
+        run: |
+          echo "kernel.apparmor_restrict_unprivileged_userns=0" | sudo tee /etc/sysctl.d/99-userns.conf
+          echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns || true
+          sudo sysctl -p || true
+        continue-on-error: true
+
+      - name: Build package
+        if: env.SKIP_BUILD != 'true'
+        env:
+          GHCR_TOKEN: "${{ github.token }}"
+          GITHUB_TOKEN: "${{ secrets.RO_GHTOKEN || github.token }}"
           GITLAB_TOKEN: "${{ secrets.RO_GLTOKEN }}"
           MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}"
         run: |
-          #Presets
-          set +x ; set +e
-          #--------------#
-          ##Env
-          if [ -z "${GITHUB_TOKEN+x}" ] || [ -z "${GITHUB_TOKEN##*[[:space:]]}" ]; then
-            echo "::warning::Using Over Privileged Github Token \${GHCR_TOKEN}"
-            export GITHUB_TOKEN="${GHCR_TOKEN}"
-          fi
-          ##Setup output directory
-          SBUILD_OUTDIR="${SYSTMP}/SBUILD_OUTPUT"
-          mkdir -p "${SBUILD_OUTDIR}"
-          echo "SBUILD_OUTDIR=${SBUILD_OUTDIR}" >> "${GITHUB_ENV}"
-          ##Build arguments
-          SBUILD_ARGS=()
-          SBUILD_ARGS+=("--outdir" "${SBUILD_OUTDIR}")
-          SBUILD_ARGS+=("--ci")
-          SBUILD_ARGS+=("--checksums")
-          SBUILD_ARGS+=("--timeout" "10800")  # 3 hours
-          # Force rebuild if requested
-          if [[ "${SBUILD_REBUILD}" == "true" ]]; then
-            SBUILD_ARGS+=("--force")
-          fi
-          # Keep logs if requested
-          if [[ "${KEEP_LOGS}" == "YES" ]]; then
-            SBUILD_ARGS+=("--keep")
-          fi
-          # Debug/verbose mode
-          if [[ "${DEBUG}" == "1" ]]; then
-            SBUILD_ARGS+=("--log-level" "debug")
-          fi
-          # Push to GHCR
-          SBUILD_ARGS+=("--push")
-          SBUILD_ARGS+=("--ghcr-repo" "$(echo "${GHCRPKG_LOCAL}" | sed 's|^ghcr.io/||')")
-          # Sign if key available
-          if [[ -n "${MINISIGN_KEY}" && "${MINISIGN_KEY}" =~ ^[^[:space:]]+$ ]]; then
-            SBUILD_ARGS+=("--sign")
-          fi
-          ##Run sbuild build
-          echo "[+] Running: sbuild build ${SBUILD_ARGS[*]} ${SBUILD_FILE_URL}"
-          "${SYSTMP}/sbuild" build "${SBUILD_ARGS[@]}" "${SBUILD_FILE_URL}" 2>&1 | tee "${SYSTMP}/BUILD.log"
-          ##Purge Tokens from logs
-          if command -v ansi2txt &> /dev/null; then
-            cat "${SYSTMP}/BUILD.log" | ansi2txt > "${SYSTMP}/BUILD.gh.log.txt"
-          else
-            cat "${SYSTMP}/BUILD.log" > "${SYSTMP}/BUILD.gh.log.txt"
-          fi
-          sed -i '/.*github_pat.*/Id' "${SYSTMP}/BUILD.gh.log.txt" 2>/dev/null
-          sed -i '/.*ghp_.*/Id' "${SYSTMP}/BUILD.gh.log.txt" 2>/dev/null
-          sed -i '/.*access_key_id.*/Id' "${SYSTMP}/BUILD.gh.log.txt" 2>/dev/null
-          sed -i '/.*token.*/Id' "${SYSTMP}/BUILD.gh.log.txt" 2>/dev/null
-          sed -i '/.*secret_access_key.*/Id' "${SYSTMP}/BUILD.gh.log.txt" 2>/dev/null
-          sed -i '/.*cloudflarestorage.*/Id' "${SYSTMP}/BUILD.gh.log.txt" 2>/dev/null
-          mv -fv "${SYSTMP}/BUILD.gh.log.txt" "${SYSTMP}/BUILD.log"
-        continue-on-error: true
+          set +e  # Don't exit on error, we want to capture the result
 
-    ##Logs & Artifacts
-      - name: Get DateTime [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        run: |
-          #Presets
-          set +x ; set +e
-          #--------------#
-          UTC_TIME="$(TZ='UTC' date +'%Y_%m_%dT%I_%M_%S_%p')"
-          echo "UTC_TIME=${UTC_TIME}" >> "${GITHUB_ENV}"
-        continue-on-error: true
+          SBUILD="${SYSTMP}/sbuild"
+          if [[ "${QEMU_MODE:-}" == "true" ]]; then
+            SBUILD="${SYSTMP}/sbuild-riscv64"
+          fi
 
-      - name: Upload (LOG) Artifacts [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
+          # Output directory
+          OUTDIR="${SYSTMP}/output"
+          mkdir -p "$OUTDIR"
+          echo "SBUILD_OUTDIR=${OUTDIR}" >> "$GITHUB_ENV"
+
+          # Build arguments
+          ARGS=(
+            "--outdir" "$OUTDIR"
+            "--ci"
+            "--checksums"
+            "--timeout" "10800"
+            "--push"
+            "--ghcr-repo" "${GHCR_REPO}"
+          )
+
+          [[ "${{ inputs.rebuild }}" == "true" ]] && ARGS+=("--force")
+          [[ "${{ inputs.logs }}" == "true" ]] && ARGS+=("--keep")
+          [[ "${{ inputs.debug }}" == "true" ]] && ARGS+=("--log-level" "debug")
+          [[ "${SIGN_ENABLED:-}" == "true" ]] && ARGS+=("--sign")
+
+          # Run build
+          echo "::group::Build Output"
+          "$SBUILD" build "${ARGS[@]}" "${{ inputs.sbuild-url }}" 2>&1 | tee "${SYSTMP}/build.log"
+          BUILD_STATUS=$?
+          echo "::endgroup::"
+
+          # Sanitize log (remove tokens)
+          sed -i -E '/(ghp_|github_pat|token|secret|access_key)/Id' "${SYSTMP}/build.log" 2>/dev/null || true
+
+          if [[ $BUILD_STATUS -ne 0 ]]; then
+            echo "BUILD_FAILED=true" >> "$GITHUB_ENV"
+            echo "::error::Build failed with status $BUILD_STATUS"
+          fi
+
+      - name: Upload build logs
+        if: always() && env.SKIP_BUILD != 'true'
         uses: actions/upload-artifact@v4
         with:
-            name: ${{ env.PKG_FAMILY_LOCAL }}_${{ matrix.package.host }}
-            path: |
-              /tmp/BUILD.log
-              /tmp/BUILD_ARTIFACTS.zstd
-            compression-level: 0 # no compression, [Default: 6 (GNU Gzip)]
-            retention-days: 30
-            overwrite: true
-        continue-on-error: true
+          name: "build-log-${{ matrix.target.host }}"
+          path: "${{ env.SYSTMP }}/build.log"
+          retention-days: 7
+          if-no-files-found: ignore
 
-      - name: Attest Build Provenance [${{ matrix.package.host }}<==>${{ matrix.package.runner }}]
-        if: env.CONTINUE_GHRUN != 'FALSE' && env.SBUILD_SUCCESSFUL == 'YES'
-        uses: actions/attest-build-provenance@v2.4.0
+      - name: Attest build provenance
+        if: env.SKIP_BUILD != 'true' && env.BUILD_FAILED != 'true'
+        uses: actions/attest-build-provenance@v2
         with:
-          subject-name: "${{ env.PKG_FAMILY_LOCAL }}-${{ github.run_id }}"
-          subject-path: |
-            "/tmp/BUILD.log"
-            ${{ env.SBUILD_OUTDIR }}/**
-          show-summary: true
+          subject-name: "${{ inputs.pkg-family }}-${{ matrix.target.host }}"
+          subject-path: "${{ env.SBUILD_OUTDIR }}/**"
         continue-on-error: true
 
-      - name: Check Build [${{ matrix.package.ghcr_pkg }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
+      - name: Verify build
+        if: env.SKIP_BUILD != 'true'
         run: |
-          #Presets
-          set +x ; set +e
-          #--------------#
-          if [[ "${GHA_BUILD_FAILED}" == "YES" || "${SBUILD_SUCCESSFUL}" == "NO" ]]; then
-            echo -e "\n[-] FATAL: Failed to Successfully Build ${{ matrix.package.ghcr_pkg }}"
-            echo "CONTINUE_GHRUN=FALSE" >> "${GITHUB_ENV}"
-           exit 1
-          else
-            echo -e "\n[+] Build successful!"
-            if [[ -n "${GHCRPKG_URL}" ]]; then
-              echo -e "[+] Package: https://${GHCRPKG_URL}\n"
-            fi
+          if [[ "${BUILD_FAILED:-}" == "true" ]]; then
+            echo "::error::Build failed"
+            exit 1
           fi
-        continue-on-error: false
-
-      - name: Check Push [${{ matrix.package.ghcr_pkg }}]
-        if: env.CONTINUE_GHRUN != 'FALSE'
-        run: |
-          #Presets
-          set +x ; set +e
-          #--------------#
-          if [[ "${PUSH_SUCCESSFUL}" == "NO" ]]; then
-            echo -e "\n[-] FATAL: Failed to Successfully Push ==> ${{ matrix.package.ghcr_pkg }}"
-           exit 1
-          elif [[ "${PUSH_SUCCESSFUL}" == "YES" ]]; then
-            echo -e "\n[+] Push successful!"
-            echo -e "[+] Package URL: https://${GHCRPKG_URL}\n"
-          else
-            echo -e "\n[!] Push was not attempted (missing --push flag or credentials)"
-          fi
-        continue-on-error: false
+          echo "Build completed successfully"

@@ -114,6 +114,8 @@ jobs:
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
       logs: true
+      metadata-release: false
+      build-deps: "go,rust,build-essential"
     secrets: inherit
 
   update-cache:

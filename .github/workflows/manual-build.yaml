@@ -39,4 +39,6 @@ jobs:
       rebuild: true
       logs: true
       debug: true
+      metadata-release: false
+      build-deps: "go,rust,build-essential"
     secrets: inherit

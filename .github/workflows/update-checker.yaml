@@ -102,15 +102,15 @@ jobs:
             git pull origin main
             git checkout -b "$branch"
 
-            # Update version in recipe
+            # Update pkgver in recipe
             if [ -f "$recipe_path" ]; then
-              # Check if version field exists
-              if grep -q "^version:" "$recipe_path"; then
-                # Update existing version
-                sed -i "s/^version:.*/version: \"${new_ver}\"/" "$recipe_path"
+              # Check if pkgver field exists
+              if grep -q "^pkgver:" "$recipe_path"; then
+                # Update existing pkgver
+                sed -i "s/^pkgver:.*/pkgver: \"${new_ver}\"/" "$recipe_path"
               else
-                # Add version field after pkg_id
-                sed -i "/^pkg_id:/a version: \"${new_ver}\"" "$recipe_path"
+                # Add pkgver field after pkg_id
+                sed -i "/^pkg_id:/a pkgver: \"${new_ver}\"" "$recipe_path"
               fi
 
               git add "$recipe_path"
