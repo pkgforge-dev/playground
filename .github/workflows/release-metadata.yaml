@@ -60,6 +60,7 @@ jobs:
             --output /tmp/output \
             --cache-type bincache \
             --parallel 4 \
+            --ghcr-owner pkgforge-dev \
             --github-token "$GITHUB_TOKEN" || {
             echo "::warning::bincache metadata generation failed or no packages found"
           }
@@ -83,6 +84,7 @@ jobs:
             --output /tmp/output \
             --cache-type pkgcache \
             --parallel 4 \
+            --ghcr-owner pkgforge-dev \
             --github-token "$GITHUB_TOKEN" || {
             echo "::warning::pkgcache metadata generation failed or no packages found"
           }
