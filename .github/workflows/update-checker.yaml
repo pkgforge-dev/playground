@@ -114,29 +114,34 @@ jobs:
               fi
 
               git add "$recipe_path"
-              git commit -m "chore(bot): update ${pkg_name} to ${new_ver}
+
+              # Write commit message to temp file
+              cat > /tmp/commit_msg.txt << COMMIT_EOF
+chore(bot): update ${pkg_name} to ${new_ver}
 
 Automated update detected via pkgver script.
 
 - Package: ${pkg_name}
 - Previous: ${old_ver}
-- Updated: ${new_ver}"
+- Updated: ${new_ver}
+COMMIT_EOF
 
+              git commit -F /tmp/commit_msg.txt
               git push origin "$branch"
 
-              gh pr create \
-                --title "[bot] Update ${pkg_name}: ${old_ver} -> ${new_ver}" \
-                --body "## Automated Update
+              # Write PR body to temp file
+              cat > /tmp/pr_body.txt << PR_EOF
+## Automated Update
 
 This PR updates **${pkg_name}** to version **${new_ver}**.
 
 | Field | Value |
 |-------|-------|
-| Package | \`${pkg_name}\` |
-| Package ID | \`${pkg_id}\` |
-| Previous Version | \`${old_ver}\` |
-| New Version | \`${new_ver}\` |
-| Recipe | \`${recipe_path}\` |
+| Package | ${pkg_name} |
+| Package ID | ${pkg_id} |
+| Previous Version | ${old_ver} |
+| New Version | ${new_ver} |
+| Recipe | ${recipe_path} |
 
 ### What to do
 
@@ -145,7 +150,12 @@ This PR updates **${pkg_name}** to version **${new_ver}**.
 3. The build will be triggered automatically
 
 ---
-*This PR was created automatically by the update checker bot.*" \
+*This PR was created automatically by the update checker bot.*
+PR_EOF
+
+              gh pr create \
+                --title "[bot] Update ${pkg_name}: ${old_ver} -> ${new_ver}" \
+                --body-file /tmp/pr_body.txt \
                 --label "bot,update" \
                 --head "$branch" \
                 --base main
