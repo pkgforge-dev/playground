@@ -133,7 +133,7 @@ jobs:
 
           # Install soar
           SOAR_TRIPLET="${NATIVE_ARCH}-$(uname -s | tr '[:upper:]' '[:lower:]')"
-          curl -fsSL "https://github.com/pkgforge/soar/releases/download/latest/soar-${SOAR_TRIPLET}" \
+          curl -fsSL "https://github.com/pkgforge/soar/releases/latest/download/soar-${SOAR_TRIPLET}" \
             -o /tmp/soar && sudo mv /tmp/soar /usr/local/bin/soar && sudo chmod +x /usr/local/bin/soar
           soar --version
 
@@ -156,14 +156,15 @@ jobs:
           GHCR_REPO="$(echo "${{ inputs.ghcr-url }}" | sed 's|^ghcr.io/||' | tr '[:upper:]' '[:lower:]')"
           echo "GHCR_REPO=${GHCR_REPO}" >> "$GITHUB_ENV"
 
-          # For RISC-V, setup QEMU
+          # For RISC-V, setup QEMU and download riscv64 binaries
           if [[ "${QEMU_MODE:-}" == "true" ]]; then
             sudo apt-get install -y qemu-user-static
+            RISCV_TRIPLET="riscv64-linux"
             # Download riscv64 sbuild
-            curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-riscv64-linux" \
+            curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-${RISCV_TRIPLET}" \
               -o "${SYSTMP}/sbuild-riscv64" && chmod +x "${SYSTMP}/sbuild-riscv64"
             # Download riscv64 soar
-            curl -fsSL "https://github.com/pkgforge/soar/releases/download/latest/soar-riscv64-linux" \
+            curl -fsSL "https://github.com/pkgforge/soar/releases/latest/download/soar-${RISCV_TRIPLET}" \
               -o /tmp/soar-riscv64 && sudo mv /tmp/soar-riscv64 /usr/local/bin/soar-riscv64 && sudo chmod +x /usr/local/bin/soar-riscv64
           fi
 
