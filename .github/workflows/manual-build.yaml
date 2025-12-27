@@ -1,0 +1,42 @@
+name: Manual Build Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      recipe:
+        description: 'Recipe path (e.g., binaries/hello/static.yaml)'
+        type: choice
+        options:
+          - binaries/hello/static.yaml
+          - binaries/jq/static.yaml
+          - packages/hello-appimage/appimage.yaml
+        default: 'binaries/hello/static.yaml'
+      host:
+        description: 'Target host'
+        type: choice
+        options:
+          - ALL
+          - x86_64-Linux
+          - aarch64-Linux
+        default: 'x86_64-Linux'
+      cache_type:
+        description: 'Cache type (auto-detected from path if not specified)'
+        type: choice
+        options:
+          - auto
+          - bincache
+          - pkgcache
+        default: 'auto'
+
+jobs:
+  build:
+    uses: ./.github/workflows/matrix_builds.yaml
+    with:
+      host: ${{ inputs.host }}
+      sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ inputs.recipe }}"
+      ghcr-url: ${{ inputs.cache_type == 'auto' && (contains(inputs.recipe, 'packages/') && 'ghcr.io/pkgforge/pkgcache-test' || 'ghcr.io/pkgforge/bincache-test') || (inputs.cache_type == 'pkgcache' && 'ghcr.io/pkgforge/pkgcache-test' || 'ghcr.io/pkgforge/bincache-test') }}
+      pkg-family: ${{ github.event.repository.name }}
+      rebuild: true
+      logs: true
+      debug: true
+    secrets: inherit

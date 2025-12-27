@@ -1,0 +1,49 @@
+#!/SBUILD
+_disabled: false
+
+pkg: hello
+pkg_id: test.hello.static
+pkg_type: static
+category:
+  - utility
+description: Simple hello world static binary for testing bincache
+homepage:
+  - https://github.com/pkgforge/sbuilder
+maintainer:
+  - pkgforge-dev
+license:
+  - MIT
+src_url:
+  - https://github.com/pkgforge/sbuilder
+
+x_exec:
+  host:
+    - aarch64-Linux
+    - x86_64-Linux
+  shell: bash
+  pkgver: |
+    echo "1.0.0"
+  run: |
+    # Create a simple static binary using musl
+    cat > hello.c << 'EOF'
+    #include <stdio.h>
+    int main() {
+        printf("Hello from sbuild bincache test!\n");
+        printf("This is a statically linked binary.\n");
+        return 0;
+    }
+    EOF
+
+    # Install musl-tools if needed
+    if ! command -v musl-gcc &>/dev/null; then
+      sudo apt-get update -qq
+      sudo apt-get install -y -qq musl-tools
+    fi
+
+    # Compile statically
+    musl-gcc -static -O2 hello.c -o "$SBUILD_OUTDIR/hello"
+    chmod +x "$SBUILD_OUTDIR/hello"
+
+    # Verify
+    file "$SBUILD_OUTDIR/hello"
+    "$SBUILD_OUTDIR/hello"

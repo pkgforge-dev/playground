@@ -1,0 +1,80 @@
+#!/SBUILD
+_disabled: false
+
+pkg: hello-appimage
+pkg_id: test.hello.appimage
+pkg_type: appimage
+category:
+  - utility
+description: Simple hello world AppImage for testing pkgcache
+homepage:
+  - https://github.com/pkgforge/sbuilder
+maintainer:
+  - pkgforge-dev
+license:
+  - MIT
+src_url:
+  - https://github.com/pkgforge/sbuilder
+
+x_exec:
+  host:
+    - aarch64-Linux
+    - x86_64-Linux
+  shell: bash
+  pkgver: |
+    echo "1.0.0"
+  run: |
+    # Create a minimal AppImage
+    APPDIR="$SBUILD_TMPDIR/hello.AppDir"
+    mkdir -p "$APPDIR/usr/bin"
+
+    # Create the binary
+    cat > "$APPDIR/usr/bin/hello" << 'EOF'
+    #!/bin/sh
+    echo "Hello from sbuild pkgcache AppImage test!"
+    EOF
+    chmod +x "$APPDIR/usr/bin/hello"
+
+    # Create AppRun
+    cat > "$APPDIR/AppRun" << 'EOF'
+    #!/bin/sh
+    SELF=$(readlink -f "$0")
+    HERE=${SELF%/*}
+    exec "${HERE}/usr/bin/hello" "$@"
+    EOF
+    chmod +x "$APPDIR/AppRun"
+
+    # Create .desktop file
+    cat > "$APPDIR/hello.desktop" << 'EOF'
+    [Desktop Entry]
+    Name=Hello
+    Exec=hello
+    Icon=hello
+    Type=Application
+    Categories=Utility;
+    EOF
+
+    # Create a simple icon (1x1 PNG)
+    printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82' > "$APPDIR/hello.png"
+
+    # Download appimagetool if not available
+    if ! command -v appimagetool &>/dev/null; then
+      case "$(uname -m)" in
+        x86_64) TOOL_ARCH="x86_64" ;;
+        aarch64) TOOL_ARCH="aarch64" ;;
+      esac
+      curl -qfsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${TOOL_ARCH}.AppImage" -o /tmp/appimagetool
+      chmod +x /tmp/appimagetool
+      APPIMAGETOOL="/tmp/appimagetool"
+    else
+      APPIMAGETOOL="appimagetool"
+    fi
+
+    # Build AppImage
+    cd "$SBUILD_TMPDIR"
+    ARCH="$(uname -m)" "$APPIMAGETOOL" --no-appstream "$APPDIR" "$SBUILD_OUTDIR/hello.AppImage"
+    chmod +x "$SBUILD_OUTDIR/hello.AppImage"
+
+    # Verify
+    file "$SBUILD_OUTDIR/hello.AppImage"
+    ls -lh "$SBUILD_OUTDIR/"

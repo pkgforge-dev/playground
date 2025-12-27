@@ -1,0 +1,107 @@
+name: Build Changed Packages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'binaries/**/*.yaml'
+      - 'packages/**/*.yaml'
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      recipe_path:
+        description: 'Specific recipe path to build (e.g., binaries/hello/static.yaml)'
+        type: string
+        default: ''
+      force_rebuild:
+        description: 'Force rebuild even if hash unchanged'
+        type: boolean
+        default: true
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect-changes:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    outputs:
+      changed_recipes: ${{ steps.detect.outputs.changed_recipes }}
+      has_changes: ${{ steps.detect.outputs.has_changes }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed recipes
+        id: detect
+        run: |
+          mkdir -p /tmp/changes
+          CHANGED_RECIPES="[]"
+
+          if [ -n "${{ inputs.recipe_path }}" ]; then
+            # Manual trigger with specific recipe
+            if [ -f "${{ inputs.recipe_path }}" ]; then
+              RECIPE="${{ inputs.recipe_path }}"
+              CHANGED_RECIPES=$(jq -n --arg path "$RECIPE" '[{"path": $path}]')
+            else
+              echo "::error::Recipe not found: ${{ inputs.recipe_path }}"
+              exit 1
+            fi
+          else
+            # Detect changes from git diff
+            if [ "${{ github.event_name }}" == "push" ]; then
+              CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD -- 'binaries/**/*.yaml' 'packages/**/*.yaml' 2>/dev/null || true)
+            elif [ "${{ github.event_name }}" == "pull_request" ]; then
+              CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }} -- 'binaries/**/*.yaml' 'packages/**/*.yaml' 2>/dev/null || true)
+            else
+              CHANGED_FILES=""
+            fi
+
+            echo "Changed files:"
+            echo "$CHANGED_FILES"
+
+            # Build JSON array of changed recipes
+            for file in $CHANGED_FILES; do
+              if [ -f "$file" ]; then
+                CHANGED_RECIPES=$(echo "$CHANGED_RECIPES" | jq --arg path "$file" '. + [{"path": $path}]')
+              fi
+            done
+          fi
+
+          # Output results
+          RECIPE_COUNT=$(echo "$CHANGED_RECIPES" | jq 'length')
+          echo "Found $RECIPE_COUNT recipes to build"
+          echo "$CHANGED_RECIPES" | jq .
+
+          # Save to outputs
+          echo "changed_recipes=$(echo "$CHANGED_RECIPES" | jq -c .)" >> $GITHUB_OUTPUT
+
+          if [ "$RECIPE_COUNT" -gt 0 ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.has_changes == 'true'
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        recipe: ${{ fromJson(needs.detect-changes.outputs.changed_recipes) }}
+    uses: ./.github/workflows/matrix_builds.yaml
+    with:
+      sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ matrix.recipe.path }}"
+      ghcr-url: ${{ contains(matrix.recipe.path, 'packages/') && 'ghcr.io/pkgforge/pkgcache-test' || 'ghcr.io/pkgforge/bincache-test' }}
+      pkg-family: ${{ github.event.repository.name }}
+      rebuild: true
+      logs: true
+    secrets: inherit
