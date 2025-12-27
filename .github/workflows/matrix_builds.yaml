@@ -210,21 +210,22 @@ jobs:
                 # Install Nix
                 if ! command -v nix &>/dev/null; then
                   curl -fsSL https://nixos.org/nix/install | sh -s -- --daemon --yes
-                  # Source nix
-                  if [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
-                    source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-                  fi
                 fi
+                # Source nix environment
+                if [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
+                  source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+                fi
+                # Add nix to PATH for subsequent steps
+                echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
+                echo "${HOME}/.nix-profile/bin" >> "$GITHUB_PATH"
                 # Configure nix
                 echo "access-tokens = github.com=${GITHUB_TOKEN}" | sudo tee -a /etc/nix/nix.conf
-                export NIXPKGS_ALLOW_BROKEN=1
-                export NIXPKGS_ALLOW_UNFREE=1
-                export NIXPKGS_ALLOW_INSECURE=1
-                export NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1
+                # Set environment variables
                 echo "NIXPKGS_ALLOW_BROKEN=1" >> "$GITHUB_ENV"
                 echo "NIXPKGS_ALLOW_UNFREE=1" >> "$GITHUB_ENV"
                 echo "NIXPKGS_ALLOW_INSECURE=1" >> "$GITHUB_ENV"
                 echo "NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1" >> "$GITHUB_ENV"
+                echo "NIX_INSTALLED=true" >> "$GITHUB_ENV"
                 nix --version
                 ;;
 

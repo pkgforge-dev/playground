@@ -4,13 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       recipe:
-        description: 'Recipe path (e.g., binaries/hello/static.yaml)'
-        type: choice
-        options:
-          - binaries/hello/static.yaml
-          - binaries/jq/static.yaml
-          - packages/hello-appimage/appimage.yaml
-        default: 'binaries/hello/static.yaml'
+        description: 'Recipe path (e.g., binaries/hello/static.yaml) or leave empty to list all'
+        type: string
+        default: ''
       host:
         description: 'Target host'
         type: choice
@@ -29,12 +25,50 @@ on:
         default: 'auto'
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      recipe: ${{ steps.validate.outputs.recipe }}
+      valid: ${{ steps.validate.outputs.valid }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate recipe
+        id: validate
+        run: |
+          RECIPE="${{ inputs.recipe }}"
+
+          # Find all available recipes
+          RECIPES=$(find binaries packages -name '*.yaml' -type f 2>/dev/null | sort)
+
+          if [ -z "$RECIPE" ]; then
+            echo "::notice::No recipe specified. Available recipes:"
+            echo "$RECIPES" | while read r; do echo "  - $r"; done
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ ! -f "$RECIPE" ]; then
+            echo "::error::Recipe not found: $RECIPE"
+            echo ""
+            echo "Available recipes:"
+            echo "$RECIPES" | while read r; do echo "  - $r"; done
+            echo "valid=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+          echo "recipe=$RECIPE" >> $GITHUB_OUTPUT
+          echo "valid=true" >> $GITHUB_OUTPUT
+
   build:
+    needs: validate
+    if: needs.validate.outputs.valid == 'true'
     uses: ./.github/workflows/matrix_builds.yaml
     with:
       host: ${{ inputs.host }}
-      sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ inputs.recipe }}"
-      ghcr-url: ${{ contains(inputs.recipe, 'packages/') && format('ghcr.io/{0}/pkgcache', github.repository_owner) || format('ghcr.io/{0}/bincache', github.repository_owner) }}
+      sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ needs.validate.outputs.recipe }}"
+      ghcr-url: ${{ contains(needs.validate.outputs.recipe, 'packages/') && format('ghcr.io/{0}/pkgcache', github.repository_owner) || format('ghcr.io/{0}/bincache', github.repository_owner) }}
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
       logs: true
