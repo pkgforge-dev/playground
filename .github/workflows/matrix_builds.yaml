@@ -397,6 +397,7 @@ jobs:
           fi
           # Push to GHCR
           SBUILD_ARGS+=("--push")
+          SBUILD_ARGS+=("--ghcr-token" "${GHCR_TOKEN}")
           SBUILD_ARGS+=("--ghcr-repo" "$(echo "${GHCRPKG_LOCAL}" | sed 's|^ghcr.io/||')")
           # Sign if key available
           if [[ -n "${MINISIGN_KEY}" && "${MINISIGN_KEY}" =~ ^[^[:space:]]+$ ]]; then
