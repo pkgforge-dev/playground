@@ -34,7 +34,7 @@ jobs:
     with:
       host: ${{ inputs.host }}
       sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ inputs.recipe }}"
-      ghcr-url: ${{ inputs.cache_type == 'auto' && (contains(inputs.recipe, 'packages/') && 'ghcr.io/pkgforge/pkgcache-test' || 'ghcr.io/pkgforge/bincache-test') || (inputs.cache_type == 'pkgcache' && 'ghcr.io/pkgforge/pkgcache-test' || 'ghcr.io/pkgforge/bincache-test') }}
+      ghcr-url: ${{ inputs.cache_type == 'auto' && (contains(inputs.recipe, 'packages/') && 'ghcr.io/pkgforge/pkgcache' || 'ghcr.io/pkgforge/bincache') || (inputs.cache_type == 'pkgcache' && 'ghcr.io/pkgforge/pkgcache' || 'ghcr.io/pkgforge/bincache') }}
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
       logs: true
