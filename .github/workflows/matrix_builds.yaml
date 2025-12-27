@@ -282,6 +282,10 @@ jobs:
                 # Add nix to PATH for subsequent steps
                 echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
                 echo "${HOME}/.nix-profile/bin" >> "$GITHUB_PATH"
+                # Symlink nix binaries to /usr/local/bin for child processes
+                for bin in /nix/var/nix/profiles/default/bin/*; do
+                  sudo ln -sf "$bin" /usr/local/bin/ 2>/dev/null || true
+                done
                 # Configure nix
                 echo "access-tokens = github.com=${GITHUB_TOKEN}" | sudo tee -a /etc/nix/nix.conf
                 # Set environment variables
