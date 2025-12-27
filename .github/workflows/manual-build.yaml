@@ -40,5 +40,5 @@ jobs:
       logs: true
       debug: true
       metadata-release: false
-      build-deps: "go,rust,build-essential"
+      build-deps: "nix,go,rust,build-essential"
     secrets: inherit
