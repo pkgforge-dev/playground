@@ -271,21 +271,20 @@ jobs:
 
             case "$dep" in
               nix)
-                # Install Nix
+                # Install Nix using pkgforge devscripts
                 if ! command -v nix &>/dev/null; then
-                  curl -fsSL https://nixos.org/nix/install | sh -s -- --daemon --yes
+                  curl -qfsSL "https://raw.githubusercontent.com/pkgforge/devscripts/refs/heads/main/Linux/install_nix.sh" -o "/tmp/install_nix.sh"
+                  chmod +x "/tmp/install_nix.sh"
+                  bash "/tmp/install_nix.sh"
+                  rm -f "/tmp/install_nix.sh"
                 fi
                 # Source nix environment
-                if [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
-                  source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-                fi
+                [[ -f "${HOME}/.bash_profile" ]] && source "${HOME}/.bash_profile"
+                [[ -f "${HOME}/.nix-profile/etc/profile.d/nix.sh" ]] && source "${HOME}/.nix-profile/etc/profile.d/nix.sh"
+                [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]] && source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
                 # Add nix to PATH for subsequent steps
                 echo "/nix/var/nix/profiles/default/bin" >> "$GITHUB_PATH"
                 echo "${HOME}/.nix-profile/bin" >> "$GITHUB_PATH"
-                # Symlink nix binaries to /usr/local/bin for child processes
-                for bin in /nix/var/nix/profiles/default/bin/*; do
-                  sudo ln -sf "$bin" /usr/local/bin/ 2>/dev/null || true
-                done
                 # Configure nix
                 echo "access-tokens = github.com=${GITHUB_TOKEN}" | sudo tee -a /etc/nix/nix.conf
                 # Set environment variables
@@ -294,6 +293,8 @@ jobs:
                 echo "NIXPKGS_ALLOW_INSECURE=1" >> "$GITHUB_ENV"
                 echo "NIXPKGS_ALLOW_UNSUPPORTED_SYSTEM=1" >> "$GITHUB_ENV"
                 echo "NIX_INSTALLED=true" >> "$GITHUB_ENV"
+                # Export full PATH with nix for child processes
+                echo "PATH=/nix/var/nix/profiles/default/bin:${HOME}/.nix-profile/bin:${PATH}" >> "$GITHUB_ENV"
                 nix --version
                 ;;
 
@@ -398,14 +399,6 @@ jobs:
           MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}"
         run: |
           set +e  # Don't exit on error, we want to capture the result
-
-          # Source nix if installed
-          if [[ "${NIX_INSTALLED:-}" == "true" ]]; then
-            if [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
-              source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
-            fi
-            export PATH="/nix/var/nix/profiles/default/bin:${HOME}/.nix-profile/bin:$PATH"
-          fi
 
           SBUILD="${SYSTMP}/sbuild"
           if [[ "${QEMU_MODE:-}" == "true" ]]; then
