@@ -232,6 +232,14 @@ jobs:
           sudo apt-fast install apt-transport-https apt-utils bc ca-certificates coreutils curl dos2unix fdupes git-lfs gnupg2 \
           jq moreutils p7zip-full rename rsync software-properties-common texinfo tmux torsocks util-linux wget zsync -y -qq 2>/dev/null
           sudo apt-fast update -y -qq 2>/dev/null
+          #Install oras for GHCR push
+          ORAS_VERSION="1.2.0"
+          case "$(uname -m)" in
+            x86_64) ORAS_ARCH="amd64" ;;
+            aarch64) ORAS_ARCH="arm64" ;;
+          esac
+          curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_${ORAS_ARCH}.tar.gz" | sudo tar -xzf - -C /usr/local/bin oras
+          oras version
           #Minisign
           if [ -n "${MINISIGN_KEY+x}" ] && [[ "${MINISIGN_KEY}" =~ ^[^[:space:]]+$ ]]; then
            mkdir -pv "${HOME}/.minisign"

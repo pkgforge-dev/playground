@@ -104,7 +104,6 @@ jobs:
     uses: ./.github/workflows/matrix_builds.yaml
     with:
       sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ matrix.recipe.path }}"
-      # Uses the repo owner's GHCR namespace for proper permissions
       ghcr-url: ${{ contains(matrix.recipe.path, 'packages/') && format('ghcr.io/{0}/pkgcache', github.repository_owner) || format('ghcr.io/{0}/bincache', github.repository_owner) }}
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
