@@ -41,19 +41,31 @@ jobs:
 
           # Find all available recipes
           RECIPES=$(find binaries packages -name '*.yaml' -type f 2>/dev/null | sort)
+          RECIPE_COUNT=$(echo "$RECIPES" | wc -l)
+
+          # Generate job summary with available recipes
+          {
+            echo "## Available Recipes ($RECIPE_COUNT)"
+            echo ""
+            echo "### Binaries"
+            echo '```'
+            echo "$RECIPES" | grep "^binaries/" || echo "(none)"
+            echo '```'
+            echo ""
+            echo "### Packages"
+            echo '```'
+            echo "$RECIPES" | grep "^packages/" || echo "(none)"
+            echo '```'
+          } >> $GITHUB_STEP_SUMMARY
 
           if [ -z "$RECIPE" ]; then
-            echo "::notice::No recipe specified. Available recipes:"
-            echo "$RECIPES" | while read r; do echo "  - $r"; done
+            echo "::notice::No recipe specified. Check job summary for available recipes."
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           if [ ! -f "$RECIPE" ]; then
             echo "::error::Recipe not found: $RECIPE"
-            echo ""
-            echo "Available recipes:"
-            echo "$RECIPES" | while read r; do echo "  - $r"; done
             echo "valid=false" >> $GITHUB_OUTPUT
             exit 1
           fi
@@ -74,5 +86,4 @@ jobs:
       logs: true
       debug: true
       metadata-release: false
-      build-deps: "nix,go,rust,build-essential"
     secrets: inherit

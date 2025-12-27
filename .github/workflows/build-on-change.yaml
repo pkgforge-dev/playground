@@ -115,7 +115,6 @@ jobs:
       rebuild: true
       logs: true
       metadata-release: false
-      build-deps: "nix,go,rust,build-essential"
     secrets: inherit
 
   update-cache:

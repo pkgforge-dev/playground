@@ -168,6 +168,70 @@ jobs:
               -o /tmp/soar-riscv64 && sudo mv /tmp/soar-riscv64 /usr/local/bin/soar-riscv64 && sudo chmod +x /usr/local/bin/soar-riscv64
           fi
 
+      - name: Detect build dependencies
+        id: detect-deps
+        run: |
+          # Fetch recipe content
+          RECIPE_CONTENT=$(curl -fsSL "${{ inputs.sbuild-url }}" 2>/dev/null || echo "")
+
+          if [[ -z "$RECIPE_CONTENT" ]]; then
+            echo "::warning::Could not fetch recipe, using provided build-deps"
+            echo "deps=${{ inputs.build-deps }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          DETECTED_DEPS=""
+
+          # Check for nix (shell: nix-shell, nix-build, or nix commands in script)
+          if echo "$RECIPE_CONTENT" | grep -qiE '(shell:\s*nix|nix-build|nix-shell|nix\s+build|nix\s+develop)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},nix"
+          fi
+
+          # Check for docker
+          if echo "$RECIPE_CONTENT" | grep -qiE '(docker\s+build|docker\s+run|dockerfile)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},docker"
+          fi
+
+          # Check for go
+          if echo "$RECIPE_CONTENT" | grep -qiE '(go\s+build|go\s+install|CGO_|go\s+mod)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},go"
+          fi
+
+          # Check for rust/cargo
+          if echo "$RECIPE_CONTENT" | grep -qiE '(cargo\s+build|cargo\s+install|rustc|Cargo\.toml)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},rust"
+          fi
+
+          # Check for zig
+          if echo "$RECIPE_CONTENT" | grep -qiE '(zig\s+build|zig\s+cc)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},zig"
+          fi
+
+          # Check for python/pip
+          if echo "$RECIPE_CONTENT" | grep -qiE '(pip\s+install|python\s+setup\.py|pyproject\.toml)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},python"
+          fi
+
+          # Always include build-essential for C/C++ builds
+          if echo "$RECIPE_CONTENT" | grep -qiE '(make\s|cmake|configure|gcc|g\+\+|clang)'; then
+            DETECTED_DEPS="${DETECTED_DEPS},build-essential"
+          fi
+
+          # Remove leading comma
+          DETECTED_DEPS="${DETECTED_DEPS#,}"
+
+          # Merge with explicitly provided deps (explicit deps take priority)
+          if [[ -n "${{ inputs.build-deps }}" ]]; then
+            # If explicit deps provided, use those instead
+            FINAL_DEPS="${{ inputs.build-deps }}"
+          else
+            FINAL_DEPS="$DETECTED_DEPS"
+          fi
+
+          echo "Detected dependencies: $DETECTED_DEPS"
+          echo "Final dependencies: $FINAL_DEPS"
+          echo "deps=$FINAL_DEPS" >> $GITHUB_OUTPUT
+
       - name: Create metadata release (soar-nest)
         if: inputs.metadata-release == true
         env:
@@ -191,12 +255,12 @@ jobs:
         continue-on-error: true
 
       - name: Install build dependencies
-        if: inputs.build-deps != ''
+        if: steps.detect-deps.outputs.deps != ''
         env:
           GITHUB_TOKEN: "${{ github.token }}"
         run: |
           set -euo pipefail
-          BUILD_DEPS="${{ inputs.build-deps }}"
+          BUILD_DEPS="${{ steps.detect-deps.outputs.deps }}"
 
           # Parse comma-separated deps
           IFS=',' read -ra DEPS <<< "$BUILD_DEPS"
@@ -330,6 +394,14 @@ jobs:
           MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}"
         run: |
           set +e  # Don't exit on error, we want to capture the result
+
+          # Source nix if installed
+          if [[ "${NIX_INSTALLED:-}" == "true" ]]; then
+            if [[ -f /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh ]]; then
+              source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh
+            fi
+            export PATH="/nix/var/nix/profiles/default/bin:${HOME}/.nix-profile/bin:$PATH"
+          fi
 
           SBUILD="${SYSTMP}/sbuild"
           if [[ "${QEMU_MODE:-}" == "true" ]]; then
