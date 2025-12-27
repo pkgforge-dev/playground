@@ -114,48 +114,12 @@ jobs:
               fi
 
               git add "$recipe_path"
-
-              # Write commit message to temp file
-              cat > /tmp/commit_msg.txt << COMMIT_EOF
-chore(bot): update ${pkg_name} to ${new_ver}
-
-Automated update detected via pkgver script.
-
-- Package: ${pkg_name}
-- Previous: ${old_ver}
-- Updated: ${new_ver}
-COMMIT_EOF
-
-              git commit -F /tmp/commit_msg.txt
+              git commit -m "chore(bot): update ${pkg_name} to ${new_ver}"
               git push origin "$branch"
-
-              # Write PR body to temp file
-              cat > /tmp/pr_body.txt << PR_EOF
-## Automated Update
-
-This PR updates **${pkg_name}** to version **${new_ver}**.
-
-| Field | Value |
-|-------|-------|
-| Package | ${pkg_name} |
-| Package ID | ${pkg_id} |
-| Previous Version | ${old_ver} |
-| New Version | ${new_ver} |
-| Recipe | ${recipe_path} |
-
-### What to do
-
-1. Review the changes
-2. Merge if the update looks correct
-3. The build will be triggered automatically
-
----
-*This PR was created automatically by the update checker bot.*
-PR_EOF
 
               gh pr create \
                 --title "[bot] Update ${pkg_name}: ${old_ver} -> ${new_ver}" \
-                --body-file /tmp/pr_body.txt \
+                --body "Automated update: ${pkg_name} ${old_ver} -> ${new_ver}" \
                 --label "bot,update" \
                 --head "$branch" \
                 --base main
