@@ -145,7 +145,7 @@ jobs:
           # Setup minisign key if available
           if [[ -n "${MINISIGN_KEY:-}" ]]; then
             mkdir -p "${HOME}/.minisign"
-            echo "${{ secrets.MINISIGN_SIGKEY }}" > "${HOME}/.minisign/minisign.key"
+            echo "${{ secrets.MINISIGN_KEY }}" > "${HOME}/.minisign/minisign.key"
             echo "SIGN_ENABLED=true" >> "$GITHUB_ENV"
           fi
 
