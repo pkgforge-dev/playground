@@ -400,6 +400,7 @@ jobs:
           GITHUB_TOKEN: "${{ secrets.RO_GHTOKEN || github.token }}"
           GITLAB_TOKEN: "${{ secrets.RO_GLTOKEN }}"
           MINISIGN_KEY: "${{ secrets.MINISIGN_KEY }}"
+          MINISIGN_PASSWORD: "${{ secrets.MINISIGN_PASSWORD }}"
         run: |
           set +e  # Don't exit on error, we want to capture the result
 
