@@ -33,7 +33,7 @@ jobs:
       - name: Install tools
         run: |
           ARCH="$(uname -m)-linux"
-          sudo apt-get update
+          sudo apt-get update || true
           sudo apt-get install -y zstd xz-utils jq
 
           # Download sbuild-meta
