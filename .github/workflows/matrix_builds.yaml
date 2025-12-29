@@ -145,8 +145,11 @@ jobs:
           # Setup minisign key if available
           if [[ -n "${MINISIGN_KEY:-}" ]]; then
             mkdir -p "${HOME}/.minisign"
-            echo "${{ secrets.MINISIGN_KEY }}" > "${HOME}/.minisign/minisign.key"
+            echo "${MINISIGN_KEY}" > "${HOME}/.minisign/minisign.key"
             echo "SIGN_ENABLED=true" >> "$GITHUB_ENV"
+            # Install minisign
+            sudo apt-get install -y -qq minisign
+            minisign -v
           fi
 
           # GHCR login
@@ -232,8 +235,20 @@ jobs:
           echo "Final dependencies: $FINAL_DEPS"
           echo "deps=$FINAL_DEPS" >> $GITHUB_OUTPUT
 
+      - name: Check host compatibility
+        run: |
+          SBUILD="${SYSTMP}/sbuild"
+          if [[ "${QEMU_MODE:-}" == "true" ]]; then
+            SBUILD="${SYSTMP}/sbuild-riscv64"
+          fi
+
+          if ! "$SBUILD" info "${{ inputs.sbuild-url }}" --check-host "${HOST_TRIPLET}"; then
+            echo "::warning::Recipe not supported on ${HOST_TRIPLET}"
+            echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
+          fi
+
       - name: Create metadata release (soar-nest)
-        if: inputs.metadata-release == true
+        if: inputs.metadata-release == true && env.SKIP_BUILD != 'true'
         env:
           GH_TOKEN: "${{ github.token }}"
         run: |
@@ -255,7 +270,7 @@ jobs:
         continue-on-error: true
 
       - name: Install build dependencies
-        if: steps.detect-deps.outputs.deps != ''
+        if: steps.detect-deps.outputs.deps != '' && env.SKIP_BUILD != 'true'
         env:
           GITHUB_TOKEN: "${{ github.token }}"
         run: |
@@ -369,18 +384,6 @@ jobs:
 
             echo "::endgroup::"
           done
-
-      - name: Check host compatibility
-        run: |
-          SBUILD="${SYSTMP}/sbuild"
-          if [[ "${QEMU_MODE:-}" == "true" ]]; then
-            SBUILD="${SYSTMP}/sbuild-riscv64"
-          fi
-
-          if ! "$SBUILD" info "${{ inputs.sbuild-url }}" --check-host "${HOST_TRIPLET}"; then
-            echo "::warning::Recipe not supported on ${HOST_TRIPLET}"
-            echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
-          fi
 
       - name: Disable AppArmor restrictions
         if: env.SKIP_BUILD != 'true'
