@@ -142,6 +142,11 @@ jobs:
             -o "${SYSTMP}/sbuild" && chmod +x "${SYSTMP}/sbuild"
           "${SYSTMP}/sbuild" --version
 
+          # Install squishy
+          curl -fsSL "https://github.com/pkgforge/squishy-rs/releases/download/latest/squishy-${SOAR_TRIPLET}" \
+            -o /tmp/squishy && sudo mv /tmp/squishy /usr/local/bin/squishy && sudo chmod +x /usr/local/bin/squishy
+          squishy --version || true
+
           # Setup minisign key if available
           if [[ -n "${MINISIGN_KEY:-}" ]]; then
             mkdir -p "${HOME}/.minisign"
