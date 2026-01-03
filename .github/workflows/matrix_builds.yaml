@@ -159,6 +159,18 @@ jobs:
           GHCR_REPO="$(echo "${{ inputs.ghcr-url }}" | sed 's|^ghcr.io/||' | tr '[:upper:]' '[:lower:]')"
           echo "GHCR_REPO=${GHCR_REPO}" >> "$GITHUB_ENV"
 
+          # Extract recipe identifier from URL for artifact naming
+          # e.g., binaries/hello/static.yaml -> hello-static
+          RECIPE_PATH=$(echo "${{ inputs.sbuild-url }}" | grep -oE '(binaries|packages)/[^/]+/[^/]+\.yaml' || echo "")
+          if [[ -n "$RECIPE_PATH" ]]; then
+            PKG_NAME=$(echo "$RECIPE_PATH" | cut -d'/' -f2)
+            RECIPE_NAME=$(basename "$RECIPE_PATH" .yaml)
+            RECIPE_ID="${PKG_NAME}-${RECIPE_NAME}"
+          else
+            RECIPE_ID=$(echo -n "${{ inputs.sbuild-url }}" | sha256sum | cut -c1-8)
+          fi
+          echo "RECIPE_ID=${RECIPE_ID}" >> "$GITHUB_ENV"
+
           # For RISC-V, setup QEMU and download riscv64 binaries
           if [[ "${QEMU_MODE:-}" == "true" ]]; then
             sudo apt-get install -y qemu-user-static
@@ -447,7 +459,7 @@ jobs:
         if: always() && env.SKIP_BUILD != 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: "build-log-${{ matrix.target.host }}"
+          name: "build-log-${{ env.RECIPE_ID }}-${{ matrix.target.host }}"
           path: "${{ env.SYSTMP }}/build.log"
           retention-days: 7
           if-no-files-found: ignore
@@ -479,10 +491,6 @@ jobs:
             STATUS="skipped"
           fi
 
-          # Create a short hash of the recipe URL for unique artifact naming
-          RECIPE_HASH=$(echo -n "${{ inputs.sbuild-url }}" | sha256sum | cut -c1-8)
-          echo "RECIPE_HASH=${RECIPE_HASH}" >> "$GITHUB_ENV"
-
           jq -n \
             --arg status "$STATUS" \
             --arg host "${{ matrix.target.host }}" \
@@ -493,7 +501,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "build-status-${{ env.RECIPE_HASH }}-${{ matrix.target.host }}"
+          name: "build-status-${{ env.RECIPE_ID }}-${{ matrix.target.host }}"
           path: |
             ${{ env.SYSTMP }}/build-status.json
           retention-days: 1
