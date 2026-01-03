@@ -5,7 +5,7 @@ _disabled: false
 pkg: "winboat"
 pkg_id: "github.com.TibixDev.winboat"
 pkg_type: "appimage"
-ghcr_pkg: "ghcr.io/pkgcache/test/boat"
+ghcr_pkg: "pkgcache/test/boat"
 category:
   - "Emulator"
 description: "Run Windows apps on Linux with seamless integration "
