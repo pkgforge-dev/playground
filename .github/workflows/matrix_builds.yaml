@@ -147,6 +147,11 @@ jobs:
             -o /tmp/squishy && sudo mv /tmp/squishy /usr/local/bin/squishy && sudo chmod +x /usr/local/bin/squishy
           squishy --version || true
 
+          # Install appimagetool
+          curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${NATIVE_ARCH}.AppImage" \
+            -o /tmp/appimagetool && sudo mv /tmp/appimagetool /usr/local/bin/appimagetool && sudo chmod +x /usr/local/bin/appimagetool
+          appimagetool --version || true
+
           # Setup minisign key if available
           if [[ -n "${MINISIGN_KEY:-}" ]]; then
             mkdir -p "${HOME}/.minisign"
