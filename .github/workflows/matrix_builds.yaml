@@ -479,6 +479,10 @@ jobs:
             STATUS="skipped"
           fi
 
+          # Create a short hash of the recipe URL for unique artifact naming
+          RECIPE_HASH=$(echo -n "${{ inputs.sbuild-url }}" | sha256sum | cut -c1-8)
+          echo "RECIPE_HASH=${RECIPE_HASH}" >> "$GITHUB_ENV"
+
           jq -n \
             --arg status "$STATUS" \
             --arg host "${{ matrix.target.host }}" \
@@ -489,7 +493,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "build-status-${{ github.run_id }}-${{ strategy.job-index }}-${{ matrix.target.host }}"
+          name: "build-status-${{ env.RECIPE_HASH }}-${{ matrix.target.host }}"
           path: |
             ${{ env.SYSTMP }}/build-status.json
           retention-days: 1
