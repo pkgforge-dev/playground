@@ -51,6 +51,8 @@ jobs:
             -o /usr/local/bin/sbuild-linter && chmod +x /usr/local/bin/sbuild-linter || true
           curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-cache-x86_64-linux" \
             -o /usr/local/bin/sbuild-cache && chmod +x /usr/local/bin/sbuild-cache || true
+          curl -fsSL "https://github.com/pkgforge/squishy-rs/releases/download/latest/squishy-x86_64-linux" \
+            -o /usr/local/bin/squishy && chmod +x /usr/local/bin/squishy || true
 
       - name: Download build cache
         continue-on-error: true
