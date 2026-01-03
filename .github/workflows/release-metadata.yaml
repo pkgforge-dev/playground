@@ -33,7 +33,7 @@ jobs:
       - name: Install tools
         run: |
           ARCH="$(uname -m)-linux"
-          sudo apt-get update || true
+          sudo apt-get update
           sudo apt-get install -y zstd xz-utils jq
 
           # Download sbuild-meta
@@ -43,8 +43,15 @@ jobs:
             exit 1
           }
           chmod +x /usr/local/bin/sbuild-meta
-
           sbuild-meta --version
+
+          # Download soarql for SDB generation
+          curl -fsSL "https://github.com/pkgforge/soarql/releases/download/nightly/soarql-${ARCH}" \
+            -o /usr/local/bin/soarql || {
+            echo "::error::Failed to download soarql"
+            exit 1
+          }
+          chmod +x /usr/local/bin/soarql
 
       - name: Generate bincache metadata
         env:
@@ -110,11 +117,32 @@ jobs:
             fi
           done
 
+      - name: Generate SDB metadata
+        run: |
+          cd /tmp/output
+
+          for json_file in *.json; do
+            if [ -f "$json_file" ]; then
+              sdb_file="${json_file%.json}.sdb"
+              # Extract repo name from filename (e.g., bincache-x86_64-Linux.json -> bincache)
+              repo_name=$(echo "$json_file" | cut -d'-' -f1)
+
+              echo "Converting $json_file to $sdb_file (repo: $repo_name)"
+              soarql -i "$json_file" -o "$sdb_file" -r "$repo_name" || {
+                echo "::warning::Failed to convert $json_file to SDB"
+                continue
+              }
+            fi
+          done
+
+          echo "=== SDB files generated ==="
+          ls -lah *.sdb 2>/dev/null || echo "No SDB files"
+
       - name: Compress outputs
         run: |
           cd /tmp/output
 
-          for file in *.json; do
+          for file in *.json *.sdb; do
             if [ -f "$file" ]; then
               # Compress with zstd
               zstd -19 "$file" -o "${file}.zstd"
@@ -130,6 +158,8 @@ jobs:
           path: |
             /tmp/output/*.json
             /tmp/output/*.json.zstd
+            /tmp/output/*.sdb
+            /tmp/output/*.sdb.zstd
           retention-days: 7
 
   release:

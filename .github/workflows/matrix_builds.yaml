@@ -282,7 +282,7 @@ jobs:
         continue-on-error: true
 
       - name: Install build dependencies
-        if: steps.detect-deps.outputs.deps != ''
+        if: env.SKIP_BUILD != 'true' && steps.detect-deps.outputs.deps != ''
         env:
           GITHUB_TOKEN: "${{ github.token }}"
         run: |
