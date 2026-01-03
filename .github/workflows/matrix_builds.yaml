@@ -145,7 +145,7 @@ jobs:
           # Setup minisign key if available
           if [[ -n "${MINISIGN_KEY:-}" ]]; then
             mkdir -p "${HOME}/.minisign"
-            echo "${MINISIGN_KEY}" > "${HOME}/.minisign/minisign.key"
+            echo "${{ secrets.MINISIGN_SIGKEY }}" > "${HOME}/.minisign/minisign.key"
             echo "SIGN_ENABLED=true" >> "$GITHUB_ENV"
             # Install minisign
             sudo apt-get install -y -qq minisign
@@ -248,7 +248,7 @@ jobs:
           fi
 
       - name: Create metadata release (soar-nest)
-        if: inputs.metadata-release == true && env.SKIP_BUILD != 'true'
+        if: inputs.metadata-release == true
         env:
           GH_TOKEN: "${{ github.token }}"
         run: |
@@ -270,7 +270,7 @@ jobs:
         continue-on-error: true
 
       - name: Install build dependencies
-        if: steps.detect-deps.outputs.deps != '' && env.SKIP_BUILD != 'true'
+        if: steps.detect-deps.outputs.deps != ''
         env:
           GITHUB_TOKEN: "${{ github.token }}"
         run: |
@@ -468,3 +468,29 @@ jobs:
             exit 1
           fi
           echo "Build completed successfully"
+
+      - name: Create build status file
+        if: always()
+        run: |
+          STATUS="success"
+          if [[ "${BUILD_FAILED:-}" == "true" ]]; then
+            STATUS="failure"
+          elif [[ "${SKIP_BUILD:-}" == "true" ]]; then
+            STATUS="skipped"
+          fi
+
+          jq -n \
+            --arg status "$STATUS" \
+            --arg host "${{ matrix.target.host }}" \
+            --arg url "${{ inputs.sbuild-url }}" \
+            '{status: $status, host: $host, recipe_url: $url}' > "${SYSTMP}/build-status.json"
+
+      - name: Upload build status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "build-status-${{ github.run_id }}-${{ strategy.job-index }}-${{ matrix.target.host }}"
+          path: |
+            ${{ env.SYSTMP }}/build-status.json
+          retention-days: 1
+          if-no-files-found: ignore

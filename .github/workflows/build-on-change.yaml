@@ -136,6 +136,14 @@ jobs:
           gh release download cache-latest -p build_cache.sdb -D /tmp/ --repo "${{ github.repository }}" || \
             sbuild-cache --cache /tmp/build_cache.sdb init
 
+      - name: Download build status artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-status-*
+          path: /tmp/build-statuses
+          merge-multiple: true
+        continue-on-error: true
+
       - name: Update cache with build results
         run: |
           RECIPES='${{ needs.detect-changes.outputs.changed_recipes }}'
@@ -146,9 +154,34 @@ jobs:
             # Extract package name from path (e.g., binaries/hello/static.yaml -> hello)
             pkg_name=$(basename "$(dirname "$path")")
 
-            # TODO: Get actual build status from matrix job results
-            # For now, mark as success if we got here
-            status="success"
+            # Find build status from artifacts
+            # The recipe_url in the status JSON contains the path
+            status="unknown"
+
+            if [ -d "/tmp/build-statuses" ]; then
+              for status_file in /tmp/build-statuses/build-status.json /tmp/build-statuses/*/build-status.json; do
+                [ -f "$status_file" ] || continue
+
+                recipe_url=$(jq -r '.recipe_url // ""' "$status_file" 2>/dev/null || echo "")
+                if echo "$recipe_url" | grep -q "$path"; then
+                  file_status=$(jq -r '.status // "unknown"' "$status_file" 2>/dev/null || echo "unknown")
+                  # If any host failed, mark as failure
+                  if [ "$file_status" = "failure" ]; then
+                    status="failure"
+                    break
+                  elif [ "$file_status" = "success" ]; then
+                    status="success"
+                  fi
+                fi
+              done
+            fi
+
+            # Fallback: use overall build job result if no artifact found
+            if [ "$status" = "unknown" ]; then
+              status="${{ needs.build.result }}"
+            fi
+
+            echo "Package: $pkg_name, Status: $status"
 
             sbuild-cache --cache /tmp/build_cache.sdb update \
               --package "$pkg_name" \
