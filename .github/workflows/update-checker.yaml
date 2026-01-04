@@ -117,10 +117,35 @@ jobs:
               git commit -m "chore(bot): update ${pkg_name} to ${new_ver}"
               git push origin "$branch"
 
-              # Extract additional metadata for PR body
-              src_url=$(echo "$pkg_data" | jq -r '.src_url // empty' | head -1)
-              homepage=$(echo "$pkg_data" | jq -r '.homepage // empty' | head -1)
-              description=$(echo "$pkg_data" | jq -r '.description // empty')
+              # Extract metadata from recipe file directly
+              description=""
+              homepage=""
+              src_url=""
+
+              if [ -f "$recipe_path" ]; then
+                # Get description (handle both simple string and map format)
+                description=$(grep -A1 "^description:" "$recipe_path" | head -2 | tail -1 | sed 's/^[[:space:]]*//; s/^short:[[:space:]]*//; s/^"//; s/"$//' | head -c 200)
+                if echo "$description" | grep -q "^description:"; then
+                  description=$(echo "$description" | sed 's/^description:[[:space:]]*//; s/^"//; s/"$//')
+                fi
+
+                # Get homepage (first entry)
+                homepage=$(grep -A1 "^homepage:" "$recipe_path" | grep "^\s*-" | head -1 | sed 's/^[[:space:]]*-[[:space:]]*//; s/^"//; s/"$//')
+
+                # Get src_url (first entry)
+                src_url=$(grep -A1 "^src_url:" "$recipe_path" | grep "^\s*-" | head -1 | sed 's/^[[:space:]]*-[[:space:]]*//; s/^"//; s/"$//')
+              fi
+
+              # Build links section only if we have links
+              LINKS_SECTION=""
+              if [ -n "$homepage" ]; then
+                LINKS_SECTION="${LINKS_SECTION}
+          - 🏠 [Homepage](${homepage})"
+              fi
+              if [ -n "$src_url" ]; then
+                LINKS_SECTION="${LINKS_SECTION}
+          - 📥 [Source](${src_url})"
+              fi
 
               # Build detailed PR body
               PR_BODY=$(cat << EOF
@@ -130,16 +155,15 @@ jobs:
           |-------|-------|
           | **Package** | \`${pkg_name}\` |
           | **Package ID** | \`${pkg_id}\` |
-          | **Recipe** | \`${recipe_path}\` |
+          | **Recipe** | [\`${recipe_path}\`](https://github.com/${{ github.repository }}/blob/${branch}/${recipe_path}) |
           | **Old Version** | \`${old_ver}\` |
           | **New Version** | \`${new_ver}\` |
 
           ### Description
           ${description:-_No description available_}
-
+          ${LINKS_SECTION:+
           ### Links
-          - ${homepage:+🏠 [Homepage](${homepage})}
-          - ${src_url:+📥 [Source](${src_url})}
+          ${LINKS_SECTION}}
 
           ### Checklist
           - [ ] Version bump is correct
