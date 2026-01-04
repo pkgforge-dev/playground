@@ -118,6 +118,12 @@ jobs:
             -f pr_number="$PR_NUM" \
             -f host="$HOST"
 
+      - name: Checkout for lint
+        if: steps.parse.outputs.command == 'lint'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Handle /lint
         if: steps.parse.outputs.command == 'lint'
         env:
@@ -131,8 +137,8 @@ jobs:
             --repo ${{ github.repository }} \
             --body "🔍 **Running linter...**"
 
-          # Checkout PR
-          gh pr checkout "$PR_NUM" --repo ${{ github.repository }}
+          # Checkout PR branch
+          gh pr checkout "$PR_NUM"
 
           # Download linter
           curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-linter-x86_64-linux" \
@@ -149,18 +155,19 @@ jobs:
           fi
 
           # Run linter on each file
-          RESULTS="| Recipe | Status |
-          |--------|--------|"
+          RESULTS="| Recipe | Status | Details |
+          |--------|--------|---------|"
           HAS_ERRORS=false
 
           for file in $CHANGED; do
             if [ -f "$file" ]; then
               if /tmp/sbuild-linter lint "$file" > /tmp/lint-output.txt 2>&1; then
                 RESULTS="${RESULTS}
-          | \`${file}\` | ✅ Valid |"
+          | \`${file}\` | ✅ Valid | - |"
               else
+                ERROR_MSG=$(cat /tmp/lint-output.txt | head -3 | tr '\n' ' ' | head -c 100)
                 RESULTS="${RESULTS}
-          | \`${file}\` | ❌ Invalid |"
+          | \`${file}\` | ❌ Invalid | ${ERROR_MSG:-Unknown error} |"
                 HAS_ERRORS=true
               fi
             fi
@@ -182,6 +189,12 @@ jobs:
 
           <sub>Triggered by @${{ github.event.comment.user.login }}</sub>"
 
+      - name: Checkout for check
+        if: steps.parse.outputs.command == 'check'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Handle /check
         if: steps.parse.outputs.command == 'check'
         env:
@@ -193,8 +206,8 @@ jobs:
             --repo ${{ github.repository }} \
             --body "🔍 **Checking upstream versions...**"
 
-          # Checkout PR
-          gh pr checkout "$PR_NUM" --repo ${{ github.repository }}
+          # Checkout PR branch
+          gh pr checkout "$PR_NUM"
 
           # Download sbuild-meta
           curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-meta-x86_64-linux" \
