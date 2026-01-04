@@ -143,7 +143,7 @@ jobs:
           "${SYSTMP}/sbuild" --version
 
           # Install squishy
-          curl -fsSL "https://github.com/pkgforge/squishy-rs/releases/download/latest/squishy-${SOAR_TRIPLET}" \
+          curl -fsSL "https://github.com/pkgforge/squishy-rs/releases/latest/download/squishy-${SOAR_TRIPLET}" \
             -o /tmp/squishy && sudo mv /tmp/squishy /usr/local/bin/squishy && sudo chmod +x /usr/local/bin/squishy
           squishy --version || true
 
@@ -501,16 +501,7 @@ jobs:
             STATUS="skipped"
           fi
 
-          # Get GHCR URL if push was successful
           GHCR_URL="${GHCRPKG_URL:-}"
-
-          # Debug: show env vars related to push
-          echo "::group::Debug: Push environment"
-          echo "GHCRPKG_URL=${GHCRPKG_URL:-<not set>}"
-          echo "PUSH_SUCCESSFUL=${PUSH_SUCCESSFUL:-<not set>}"
-          echo "BUILD_FAILED=${BUILD_FAILED:-<not set>}"
-          echo "SKIP_BUILD=${SKIP_BUILD:-<not set>}"
-          echo "::endgroup::"
 
           jq -n \
             --arg status "$STATUS" \
@@ -518,9 +509,6 @@ jobs:
             --arg url "${{ inputs.sbuild-url }}" \
             --arg ghcr "$GHCR_URL" \
             '{status: $status, host: $host, recipe_url: $url, ghcr_url: $ghcr}' > "${SYSTMP}/build-status.json"
-
-          echo "Build status JSON:"
-          cat "${SYSTMP}/build-status.json"
 
       - name: Upload build status
         if: always()
