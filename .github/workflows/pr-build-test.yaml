@@ -17,7 +17,9 @@ on:
         default: x86_64-Linux
 
 permissions:
-  contents: read
+  attestations: write
+  contents: write
+  id-token: write
   packages: write
   pull-requests: write
 
