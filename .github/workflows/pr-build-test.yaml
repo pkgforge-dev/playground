@@ -235,25 +235,28 @@ jobs:
               host=$(jq -r '.host // "unknown"' "$status_file")
               status=$(jq -r '.status // "unknown"' "$status_file")
               recipe_url=$(jq -r '.recipe_url // ""' "$status_file")
+              ghcr_url=$(jq -r '.ghcr_url // ""' "$status_file")
 
               # Extract recipe path from URL
               recipe_path=$(echo "$recipe_url" | grep -oE '(binaries|packages)/[^"]+\.yaml' || echo "unknown")
-              pkg_family=$(echo "$recipe_path" | cut -d'/' -f2)
-              recipe_name=$(basename "$recipe_path" .yaml)
-
-              # Determine cache type
-              if echo "$recipe_path" | grep -q "^packages/"; then
-                CACHE_TYPE="pkgcache"
-              else
-                CACHE_TYPE="bincache"
-              fi
 
               case "$status" in
                 success)
                   STATUS_ICON="✅"
                   SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-                  GHCR_URL="https://github.com/${REPO_OWNER}/${CACHE_TYPE}/pkgs/container/${pkg_family}%2F${recipe_name}"
-                  PKG_LINK="[📦 View](${GHCR_URL})"
+                  if [ -n "$ghcr_url" ] && [ "$ghcr_url" != "null" ]; then
+                    # Convert ghcr.io URL to GitHub packages URL
+                    # ghcr.io/owner/repo/path:tag -> github.com/owner/repo/pkgs/container/path
+                    PKG_PATH=$(echo "$ghcr_url" | sed 's|ghcr.io/||' | cut -d':' -f1)
+                    # URL encode forward slashes after the repo name
+                    OWNER=$(echo "$PKG_PATH" | cut -d'/' -f1)
+                    REPO=$(echo "$PKG_PATH" | cut -d'/' -f2)
+                    CONTAINER_PATH=$(echo "$PKG_PATH" | cut -d'/' -f3- | sed 's|/|%2F|g')
+                    GITHUB_PKG_URL="https://github.com/${OWNER}/${REPO}/pkgs/container/${CONTAINER_PATH}"
+                    PKG_LINK="[📦 View](${GITHUB_PKG_URL})"
+                  else
+                    PKG_LINK="-"
+                  fi
                   ;;
                 failure)
                   STATUS_ICON="❌"

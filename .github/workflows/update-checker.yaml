@@ -117,9 +117,43 @@ jobs:
               git commit -m "chore(bot): update ${pkg_name} to ${new_ver}"
               git push origin "$branch"
 
+              # Extract additional metadata for PR body
+              src_url=$(echo "$pkg_data" | jq -r '.src_url // empty' | head -1)
+              homepage=$(echo "$pkg_data" | jq -r '.homepage // empty' | head -1)
+              description=$(echo "$pkg_data" | jq -r '.description // empty')
+
+              # Build detailed PR body
+              PR_BODY=$(cat << EOF
+          ## 📦 Package Update
+
+          | Field | Value |
+          |-------|-------|
+          | **Package** | \`${pkg_name}\` |
+          | **Package ID** | \`${pkg_id}\` |
+          | **Recipe** | \`${recipe_path}\` |
+          | **Old Version** | \`${old_ver}\` |
+          | **New Version** | \`${new_ver}\` |
+
+          ### Description
+          ${description:-_No description available_}
+
+          ### Links
+          - ${homepage:+🏠 [Homepage](${homepage})}
+          - ${src_url:+📥 [Source](${src_url})}
+
+          ### Checklist
+          - [ ] Version bump is correct
+          - [ ] Build script doesn't need changes
+          - [ ] Test build passes
+
+          ---
+          <sub>🤖 This PR was automatically created by the update checker bot</sub>
+          EOF
+          )
+
               gh pr create \
-                --title "[bot] Update ${pkg_name}: ${old_ver} -> ${new_ver}" \
-                --body "Automated update: ${pkg_name} ${old_ver} -> ${new_ver}" \
+                --title "⬆️ Update ${pkg_name}: ${old_ver} → ${new_ver}" \
+                --body "$PR_BODY" \
                 --label "bot,update" \
                 --head "$branch" \
                 --base main
