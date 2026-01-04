@@ -254,19 +254,16 @@ jobs:
                   STATUS_ICON="✅"
                   SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
                   if [ -n "$ghcr_url" ] && [ "$ghcr_url" != "null" ] && [ "$ghcr_url" != "" ]; then
-                    # Convert ghcr.io URL to GitHub packages URL
-                    # ghcr.io/owner/repo/path:tag -> github.com/owner/repo/pkgs/container/path
-                    PKG_PATH=$(echo "$ghcr_url" | sed 's|ghcr.io/||' | cut -d':' -f1)
-                    # URL encode forward slashes after the repo name
-                    OWNER=$(echo "$PKG_PATH" | cut -d'/' -f1)
-                    REPO=$(echo "$PKG_PATH" | cut -d'/' -f2)
-                    CONTAINER_PATH=$(echo "$PKG_PATH" | cut -d'/' -f3- | sed 's|/|%2F|g')
-                    GITHUB_PKG_URL="https://github.com/${OWNER}/${REPO}/pkgs/container/${CONTAINER_PATH}"
-                    PKG_LINK="[📦 View](${GITHUB_PKG_URL})"
+                    # Show GHCR URLs directly (more useful for pulling)
+                    PKG_COUNT=$(echo "$ghcr_url" | tr ',' '\n' | wc -l)
+                    if [ "$PKG_COUNT" -gt 1 ]; then
+                      # Multiple packages - show as code block with all URLs
+                      PKG_LINK=$(echo "$ghcr_url" | tr ',' '\n' | sed 's/^/`/; s/$/`/' | tr '\n' ' ')
+                    else
+                      PKG_LINK="\`${ghcr_url}\`"
+                    fi
                   else
-                    # Fallback: construct URL from recipe info
-                    GITHUB_PKG_URL="https://github.com/${REPO_OWNER}/${CACHE_TYPE}/pkgs/container/${pkg_family}%2F${recipe_name}"
-                    PKG_LINK="[📦 View](${GITHUB_PKG_URL})"
+                    PKG_LINK="-"
                   fi
                   ;;
                 failure)
