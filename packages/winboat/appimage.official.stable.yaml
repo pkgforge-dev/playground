@@ -6,7 +6,7 @@ pkg: "winboat"
 pkg_id: "github.com.TibixDev.winboat"
 pkg_type: "appimage"
 ghcr_pkg: "pkgforge-dev/pkgcache/test/boat"
-pkgver: "v0.1.0"
+pkgver: "v0.9.0"
 category:
   - "Emulator"
 description: "Run Windows apps on Linux with seamless integration "
