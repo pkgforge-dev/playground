@@ -239,12 +239,21 @@ jobs:
 
               # Extract recipe path from URL
               recipe_path=$(echo "$recipe_url" | grep -oE '(binaries|packages)/[^"]+\.yaml' || echo "unknown")
+              pkg_family=$(echo "$recipe_path" | cut -d'/' -f2)
+              recipe_name=$(basename "$recipe_path" .yaml 2>/dev/null || echo "unknown")
+
+              # Determine cache type from path
+              if echo "$recipe_path" | grep -q "^packages/"; then
+                CACHE_TYPE="pkgcache"
+              else
+                CACHE_TYPE="bincache"
+              fi
 
               case "$status" in
                 success)
                   STATUS_ICON="✅"
                   SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-                  if [ -n "$ghcr_url" ] && [ "$ghcr_url" != "null" ]; then
+                  if [ -n "$ghcr_url" ] && [ "$ghcr_url" != "null" ] && [ "$ghcr_url" != "" ]; then
                     # Convert ghcr.io URL to GitHub packages URL
                     # ghcr.io/owner/repo/path:tag -> github.com/owner/repo/pkgs/container/path
                     PKG_PATH=$(echo "$ghcr_url" | sed 's|ghcr.io/||' | cut -d':' -f1)
@@ -255,7 +264,9 @@ jobs:
                     GITHUB_PKG_URL="https://github.com/${OWNER}/${REPO}/pkgs/container/${CONTAINER_PATH}"
                     PKG_LINK="[📦 View](${GITHUB_PKG_URL})"
                   else
-                    PKG_LINK="-"
+                    # Fallback: construct URL from recipe info
+                    GITHUB_PKG_URL="https://github.com/${REPO_OWNER}/${CACHE_TYPE}/pkgs/container/${pkg_family}%2F${recipe_name}"
+                    PKG_LINK="[📦 View](${GITHUB_PKG_URL})"
                   fi
                   ;;
                 failure)
