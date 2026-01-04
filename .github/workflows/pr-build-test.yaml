@@ -8,11 +8,12 @@ on:
         type: number
         required: true
       host:
-        description: 'Target host (x86_64-Linux, aarch64-Linux, or ALL)'
+        description: 'Target host'
         type: choice
         options:
           - x86_64-Linux
           - aarch64-Linux
+          - riscv64-Linux
           - ALL
         default: x86_64-Linux
 
@@ -194,43 +195,137 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      actions: read
     steps:
-      - name: Post build result comment
+      - name: Download build status artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: build-status-*
+          path: /tmp/build-status
+          merge-multiple: false
+        continue-on-error: true
+
+      - name: Generate detailed comment
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+
           BUILD_STATUS="${{ needs.build.result }}"
           RECIPES='${{ needs.detect-changes.outputs.changed_recipes }}'
           HOST="${{ inputs.host }}"
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          REPO_OWNER="${{ github.repository_owner }}"
 
-          if [ "$BUILD_STATUS" == "success" ]; then
-            EMOJI="✅"
-            STATUS_TEXT="succeeded"
-          elif [ "$BUILD_STATUS" == "failure" ]; then
-            EMOJI="❌"
-            STATUS_TEXT="failed"
-          else
-            EMOJI="⚠️"
-            STATUS_TEXT="completed with status: ${BUILD_STATUS}"
+          # Build results table header
+          echo "| Recipe | Host | Status | Package |" > /tmp/results_table.md
+          echo "|--------|------|--------|---------|" >> /tmp/results_table.md
+
+          # Process build status artifacts
+          SUCCESS_COUNT=0
+          FAILURE_COUNT=0
+          SKIPPED_COUNT=0
+
+          if [ -d "/tmp/build-status" ]; then
+            for status_dir in /tmp/build-status/build-status-*/; do
+              [ -d "$status_dir" ] || continue
+              status_file="${status_dir}build-status.json"
+              [ -f "$status_file" ] || continue
+
+              host=$(jq -r '.host // "unknown"' "$status_file")
+              status=$(jq -r '.status // "unknown"' "$status_file")
+              recipe_url=$(jq -r '.recipe_url // ""' "$status_file")
+
+              # Extract recipe path from URL
+              recipe_path=$(echo "$recipe_url" | grep -oE '(binaries|packages)/[^"]+\.yaml' || echo "unknown")
+              pkg_family=$(echo "$recipe_path" | cut -d'/' -f2)
+              recipe_name=$(basename "$recipe_path" .yaml)
+
+              # Determine cache type
+              if echo "$recipe_path" | grep -q "^packages/"; then
+                CACHE_TYPE="pkgcache"
+              else
+                CACHE_TYPE="bincache"
+              fi
+
+              case "$status" in
+                success)
+                  STATUS_ICON="✅"
+                  SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+                  GHCR_URL="https://github.com/${REPO_OWNER}/${CACHE_TYPE}/pkgs/container/${pkg_family}%2F${recipe_name}"
+                  PKG_LINK="[📦 View](${GHCR_URL})"
+                  ;;
+                failure)
+                  STATUS_ICON="❌"
+                  FAILURE_COUNT=$((FAILURE_COUNT + 1))
+                  PKG_LINK="-"
+                  ;;
+                skipped)
+                  STATUS_ICON="⏭️"
+                  SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+                  PKG_LINK="-"
+                  ;;
+                *)
+                  STATUS_ICON="⚠️"
+                  PKG_LINK="-"
+                  ;;
+              esac
+
+              echo "| \`${recipe_path}\` | \`${host}\` | ${STATUS_ICON} ${status} | ${PKG_LINK} |" >> /tmp/results_table.md
+            done
           fi
 
-          RECIPE_LIST=$(echo "$RECIPES" | jq -r '.[].path' | sed 's/^/- `/' | sed 's/$/`/')
+          RESULTS_TABLE=$(cat /tmp/results_table.md)
+          TOTAL=$((SUCCESS_COUNT + FAILURE_COUNT + SKIPPED_COUNT))
 
-          COMMENT_BODY="## ${EMOJI} Build Test ${STATUS_TEXT}
+          # Overall status header
+          if [ "$BUILD_STATUS" == "success" ]; then
+            HEADER_EMOJI="✅"
+            HEADER_TEXT="Build Test Passed"
+          elif [ "$BUILD_STATUS" == "failure" ]; then
+            HEADER_EMOJI="❌"
+            HEADER_TEXT="Build Test Failed"
+          elif [ "$BUILD_STATUS" == "skipped" ]; then
+            HEADER_EMOJI="⏭️"
+            HEADER_TEXT="Build Test Skipped"
+          else
+            HEADER_EMOJI="⚠️"
+            HEADER_TEXT="Build Test: ${BUILD_STATUS}"
+          fi
 
-          **Host:** \`${HOST}\`
-          **Workflow Run:** [View Details](${RUN_URL})
+          # Summary line
+          SUMMARY="**${SUCCESS_COUNT}** passed"
+          [ "$FAILURE_COUNT" -gt 0 ] && SUMMARY="${SUMMARY}, **${FAILURE_COUNT}** failed"
+          [ "$SKIPPED_COUNT" -gt 0 ] && SUMMARY="${SUMMARY}, **${SKIPPED_COUNT}** skipped"
 
-          ### Recipes tested:
-          ${RECIPE_LIST}
+          # Build the comment using heredoc for proper formatting
+          cat > /tmp/comment.md << EOF
+          ## ${HEADER_EMOJI} ${HEADER_TEXT}
+
+          | | |
+          |---|---|
+          | **Target** | \`${HOST}\` |
+          | **Commit** | \`${{ needs.detect-changes.outputs.pr_head_sha }}\` |
+          | **Summary** | ${SUMMARY} |
+
+          ### Build Results
+
+          ${RESULTS_TABLE}
+
+          <details>
+          <summary>📋 View workflow logs</summary>
+
+          **Workflow Run:** [${RUN_URL}](${RUN_URL})
+
+          </details>
 
           ---
-          *Triggered manually via workflow_dispatch*"
+          <sub>🤖 Triggered via workflow_dispatch by @${{ github.actor }}</sub>
+          EOF
 
           gh pr comment "${{ inputs.pr_number }}" \
             --repo "${{ github.repository }}" \
-            --body "$COMMENT_BODY"
+            --body-file /tmp/comment.md
 
   no-changes:
     needs: detect-changes
