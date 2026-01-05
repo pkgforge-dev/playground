@@ -102,8 +102,24 @@ jobs:
             git pull origin main
             git checkout -b "$branch"
 
-            # Update pkgver in recipe
+            # Update pkgver in recipe and add old version to snapshots
             if [ -f "$recipe_path" ]; then
+              # Add old version to snapshots (if not already there)
+              if grep -q "^snapshots:" "$recipe_path"; then
+                # Check if old_ver is already in snapshots
+                if ! grep -A100 "^snapshots:" "$recipe_path" | grep -q "\"${old_ver}\""; then
+                  # Add old version to existing snapshots array (after snapshots: line)
+                  sed -i "/^snapshots:/a\\  - \"${old_ver}\"" "$recipe_path"
+                fi
+              else
+                # Add snapshots field before x_exec (or at end if no x_exec)
+                if grep -q "^x_exec:" "$recipe_path"; then
+                  sed -i "/^x_exec:/i\\snapshots:\\n  - \"${old_ver}\"" "$recipe_path"
+                else
+                  echo -e "\nsnapshots:\n  - \"${old_ver}\"" >> "$recipe_path"
+                fi
+              fi
+
               # Check if pkgver field exists
               if grep -q "^pkgver:" "$recipe_path"; then
                 # Update existing pkgver
@@ -124,9 +140,43 @@ jobs:
 
               if [ -f "$recipe_path" ]; then
                 # Get description (handle both simple string and map format)
-                description=$(grep -A1 "^description:" "$recipe_path" | head -2 | tail -1 | sed 's/^[[:space:]]*//; s/^short:[[:space:]]*//; s/^"//; s/"$//' | head -c 200)
-                if echo "$description" | grep -q "^description:"; then
-                  description=$(echo "$description" | sed 's/^description:[[:space:]]*//; s/^"//; s/"$//')
+                desc_line=$(grep -n "^description:" "$recipe_path" | head -1 | cut -d: -f1)
+                if [ -n "$desc_line" ]; then
+                  next_line=$(sed -n "$((desc_line + 1))p" "$recipe_path")
+                  # Check if it's a simple string (next line is not indented key-value)
+                  if echo "$next_line" | grep -qE "^[a-z_]+:"; then
+                    # Simple string on same line as description:
+                    description=$(sed -n "${desc_line}p" "$recipe_path" | sed 's/^description:[[:space:]]*//; s/^"//; s/"$//')
+                  elif echo "$next_line" | grep -qE "^[[:space:]]+[a-zA-Z_\"\[]+:"; then
+                    # Map format - extract _default and other descriptions
+                    # Find where description block ends (next top-level key)
+                    end_line=$(tail -n +$((desc_line + 1)) "$recipe_path" | grep -n "^[a-z_]*:" | head -1 | cut -d: -f1)
+                    if [ -n "$end_line" ]; then
+                      end_line=$((desc_line + end_line - 1))
+                    else
+                      end_line=$(wc -l < "$recipe_path")
+                    fi
+
+                    # Get _default description
+                    description=$(sed -n "$((desc_line + 1)),$((end_line))p" "$recipe_path" | grep "_default:" | head -1 | sed 's/^[[:space:]]*_default:[[:space:]]*//; s/^"//; s/"$//')
+
+                    # Get all other descriptions (limit to first 10)
+                    other_descs=$(sed -n "$((desc_line + 1)),$((end_line))p" "$recipe_path" | grep -v "_default:" | head -10 | sed 's/^[[:space:]]*//; s/:[[:space:]]*/: /' | tr '\n' '|' | sed 's/|$//')
+                    if [ -n "$other_descs" ]; then
+                      description="${description}
+
+          <details>
+          <summary>Per-binary descriptions (click to expand)</summary>
+
+          \`\`\`
+          $(echo "$other_descs" | tr '|' '\n')
+          \`\`\`
+          </details>"
+                    fi
+                  else
+                    # Simple string on same line
+                    description=$(sed -n "${desc_line}p" "$recipe_path" | sed 's/^description:[[:space:]]*//; s/^"//; s/"$//')
+                  fi
                 fi
 
                 # Get homepage (first entry)
@@ -156,7 +206,7 @@ jobs:
           | **Package** | \`${pkg_name}\` |
           | **Package ID** | \`${pkg_id}\` |
           | **Recipe** | [\`${recipe_path}\`](https://github.com/${{ github.repository }}/blob/${branch}/${recipe_path}) |
-          | **Old Version** | \`${old_ver}\` |
+          | **Old Version** | \`${old_ver}\` → added to snapshots |
           | **New Version** | \`${new_ver}\` |
 
           ### Description
