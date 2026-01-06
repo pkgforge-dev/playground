@@ -5,7 +5,7 @@ _disabled: false
 pkg: "winboat"
 pkg_id: "github.com.TibixDev.winboat"
 pkg_type: "appimage"
-ghcr_pkg: "pkgforge-dev/pkgcache/test/boat"
+ghcr_pkg: "pkgcache/test/boat"
 pkgver: "v0.9.0"
 category:
   - "Emulator"
