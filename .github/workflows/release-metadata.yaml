@@ -100,8 +100,12 @@ jobs:
             }
           fi
 
-          # Rename to include cache type
+          # Rename and fix paths
           if [ -f "/tmp/output/bincache/${{ matrix.arch }}.json" ]; then
+            # Fix temp paths in build_script URLs
+            sed -i 's|/tmp/bincache-recipes/binaries/|binaries/|g' "/tmp/output/bincache/${{ matrix.arch }}.json"
+            # Fix build_gha URL to point to soarpkgs
+            sed -i 's|github.com/pkgforge/bincache/|github.com/${{ github.repository }}/|g' "/tmp/output/bincache/${{ matrix.arch }}.json"
             mv "/tmp/output/bincache/${{ matrix.arch }}.json" "/tmp/output/bincache-${{ matrix.arch }}.json"
             echo "::notice::bincache metadata generated"
             jq 'length' "/tmp/output/bincache-${{ matrix.arch }}.json"
@@ -127,8 +131,12 @@ jobs:
             }
           fi
 
-          # Rename to include cache type
+          # Rename and fix paths
           if [ -f "/tmp/output/pkgcache/${{ matrix.arch }}.json" ]; then
+            # Fix temp paths in build_script URLs
+            sed -i 's|/tmp/pkgcache-recipes/packages/|packages/|g' "/tmp/output/pkgcache/${{ matrix.arch }}.json"
+            # Fix build_gha URL to point to soarpkgs
+            sed -i 's|github.com/pkgforge/pkgcache/|github.com/${{ github.repository }}/|g' "/tmp/output/pkgcache/${{ matrix.arch }}.json"
             mv "/tmp/output/pkgcache/${{ matrix.arch }}.json" "/tmp/output/pkgcache-${{ matrix.arch }}.json"
             echo "::notice::pkgcache metadata generated"
             jq 'length' "/tmp/output/pkgcache-${{ matrix.arch }}.json"
