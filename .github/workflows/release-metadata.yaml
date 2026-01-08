@@ -64,19 +64,21 @@ jobs:
             # Create directory structure and copy recipe
             rel_path=$(dirname "$recipe")
             if [ "$pkg_type" = "static" ] || [ "$pkg_type" = "dynamic" ]; then
+              echo "BINCACHE: $recipe (pkg_type: $pkg_type)"
               mkdir -p "/tmp/bincache-recipes/$rel_path"
               cp "$recipe" "/tmp/bincache-recipes/$recipe"
             else
+              echo "PKGCACHE: $recipe (pkg_type: $pkg_type)"
               mkdir -p "/tmp/pkgcache-recipes/$rel_path"
               cp "$recipe" "/tmp/pkgcache-recipes/$recipe"
             fi
           done
 
           echo "=== Bincache recipes (static/dynamic) ==="
-          find /tmp/bincache-recipes -name "*.yaml" 2>/dev/null | wc -l
+          find /tmp/bincache-recipes -name "*.yaml" -type f
 
           echo "=== Pkgcache recipes (other pkg_types) ==="
-          find /tmp/pkgcache-recipes -name "*.yaml" 2>/dev/null | wc -l
+          find /tmp/pkgcache-recipes -name "*.yaml" -type f
 
       - name: Generate bincache metadata
         env:
