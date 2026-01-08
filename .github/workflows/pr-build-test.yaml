@@ -73,7 +73,8 @@ jobs:
 
           for file in $CHANGED_FILES; do
             if [ -f "$file" ]; then
-              CHANGED_RECIPES=$(echo "$CHANGED_RECIPES" | jq --arg path "$file" '. + [{"path": $path}]')
+              pkg_type=$(grep -E "^pkg_type:" "$file" | head -1 | sed 's/pkg_type:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//' || echo "")
+              CHANGED_RECIPES=$(echo "$CHANGED_RECIPES" | jq --arg path "$file" --arg pkg_type "$pkg_type" '. + [{"path": $path, "pkg_type": $pkg_type}]')
             fi
           done
 
@@ -100,7 +101,7 @@ jobs:
     with:
       host: ${{ inputs.host }}
       sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.detect-changes.outputs.pr_head_sha }}/${{ matrix.recipe.path }}"
-      ghcr-url: ${{ contains(matrix.recipe.path, 'packages/') && format('ghcr.io/{0}/pkgcache', github.repository_owner) || format('ghcr.io/{0}/bincache', github.repository_owner) }}
+      ghcr-url: ghcr.io/${{ github.repository_owner }}
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
       logs: true
@@ -242,12 +243,6 @@ jobs:
               pkg_family=$(echo "$recipe_path" | cut -d'/' -f2)
               recipe_name=$(basename "$recipe_path" .yaml 2>/dev/null || echo "unknown")
 
-              # Determine cache type from path
-              if echo "$recipe_path" | grep -q "^packages/"; then
-                CACHE_TYPE="pkgcache"
-              else
-                CACHE_TYPE="bincache"
-              fi
 
               case "$status" in
                 success)

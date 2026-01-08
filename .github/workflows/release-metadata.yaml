@@ -53,24 +53,48 @@ jobs:
           }
           chmod +x /usr/local/bin/soarql
 
+      - name: Filter recipes by pkg_type
+        run: |
+          mkdir -p /tmp/bincache-recipes /tmp/pkgcache-recipes /tmp/output
+
+          # Find all recipes and filter by pkg_type
+          for recipe in $(find binaries packages -name "*.yaml" -type f 2>/dev/null); do
+            pkg_type=$(grep -E "^pkg_type:" "$recipe" | head -1 | sed 's/pkg_type:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//' || echo "")
+
+            # Create directory structure and copy recipe
+            rel_path=$(dirname "$recipe")
+            if [ "$pkg_type" = "static" ] || [ "$pkg_type" = "dynamic" ]; then
+              mkdir -p "/tmp/bincache-recipes/$rel_path"
+              cp "$recipe" "/tmp/bincache-recipes/$recipe"
+            else
+              mkdir -p "/tmp/pkgcache-recipes/$rel_path"
+              cp "$recipe" "/tmp/pkgcache-recipes/$recipe"
+            fi
+          done
+
+          echo "=== Bincache recipes (static/dynamic) ==="
+          find /tmp/bincache-recipes -name "*.yaml" 2>/dev/null | wc -l
+
+          echo "=== Pkgcache recipes (other pkg_types) ==="
+          find /tmp/pkgcache-recipes -name "*.yaml" 2>/dev/null | wc -l
+
       - name: Generate bincache metadata
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p /tmp/output
-
-          # Note: For test repo, the packages are pushed to bincache-test
-          # sbuild-meta will look for ghcr.io/pkgforge/bincache-test/<pkg>
-          sbuild-meta generate \
-            --arch "${{ matrix.arch }}" \
-            --recipes ./binaries \
-            --output /tmp/output \
-            --cache-type bincache \
-            --parallel 4 \
-            --ghcr-owner pkgforge-dev \
-            --github-token "$GITHUB_TOKEN" || {
-            echo "::warning::bincache metadata generation failed or no packages found"
-          }
+          # Generate metadata for static/dynamic packages (bincache)
+          if [ -n "$(find /tmp/bincache-recipes -name '*.yaml' 2>/dev/null)" ]; then
+            sbuild-meta generate \
+              --arch "${{ matrix.arch }}" \
+              --recipes /tmp/bincache-recipes \
+              --output /tmp/output \
+              --cache-type bincache \
+              --parallel 4 \
+              --ghcr-owner pkgforge-dev \
+              --github-token "$GITHUB_TOKEN" || {
+              echo "::warning::bincache metadata generation failed or no packages found"
+            }
+          fi
 
           # Rename to include cache type
           if [ -f "/tmp/output/bincache/${{ matrix.arch }}.json" ]; then
@@ -85,16 +109,19 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sbuild-meta generate \
-            --arch "${{ matrix.arch }}" \
-            --recipes ./packages \
-            --output /tmp/output \
-            --cache-type pkgcache \
-            --parallel 4 \
-            --ghcr-owner pkgforge-dev \
-            --github-token "$GITHUB_TOKEN" || {
-            echo "::warning::pkgcache metadata generation failed or no packages found"
-          }
+          # Generate metadata for non-static/dynamic packages (pkgcache)
+          if [ -n "$(find /tmp/pkgcache-recipes -name '*.yaml' 2>/dev/null)" ]; then
+            sbuild-meta generate \
+              --arch "${{ matrix.arch }}" \
+              --recipes /tmp/pkgcache-recipes \
+              --output /tmp/output \
+              --cache-type pkgcache \
+              --parallel 4 \
+              --ghcr-owner pkgforge-dev \
+              --github-token "$GITHUB_TOKEN" || {
+              echo "::warning::pkgcache metadata generation failed or no packages found"
+            }
+          fi
 
           # Rename to include cache type
           if [ -f "/tmp/output/pkgcache/${{ matrix.arch }}.json" ]; then

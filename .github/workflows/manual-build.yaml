@@ -15,14 +15,6 @@ on:
           - x86_64-Linux
           - aarch64-Linux
         default: 'x86_64-Linux'
-      cache_type:
-        description: 'Cache type (auto-detected from path if not specified)'
-        type: choice
-        options:
-          - auto
-          - bincache
-          - pkgcache
-        default: 'auto'
 
 jobs:
   validate:
@@ -80,7 +72,7 @@ jobs:
     with:
       host: ${{ inputs.host }}
       sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ needs.validate.outputs.recipe }}"
-      ghcr-url: ${{ contains(needs.validate.outputs.recipe, 'packages/') && format('ghcr.io/{0}/pkgcache', github.repository_owner) || format('ghcr.io/{0}/bincache', github.repository_owner) }}
+      ghcr-url: ghcr.io/${{ github.repository_owner }}
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
       logs: true

@@ -70,7 +70,8 @@ jobs:
             # Manual trigger with specific recipe
             if [ -f "${{ inputs.recipe_path }}" ]; then
               RECIPE="${{ inputs.recipe_path }}"
-              CHANGED_RECIPES=$(jq -n --arg path "$RECIPE" '[{"path": $path}]')
+              pkg_type=$(grep -E "^pkg_type:" "$RECIPE" | head -1 | sed 's/pkg_type:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//' || echo "")
+              CHANGED_RECIPES=$(jq -n --arg path "$RECIPE" --arg pkg_type "$pkg_type" '[{"path": $path, "pkg_type": $pkg_type}]')
             else
               echo "::error::Recipe not found: ${{ inputs.recipe_path }}"
               exit 1
@@ -92,10 +93,11 @@ jobs:
             echo "Changed files:"
             echo "$CHANGED_FILES"
 
-            # Build JSON array of changed recipes
+            # Build JSON array of changed recipes with pkg_type
             for file in $CHANGED_FILES; do
               if [ -f "$file" ]; then
-                CHANGED_RECIPES=$(echo "$CHANGED_RECIPES" | jq --arg path "$file" '. + [{"path": $path}]')
+                pkg_type=$(grep -E "^pkg_type:" "$file" | head -1 | sed 's/pkg_type:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//' || echo "")
+                CHANGED_RECIPES=$(echo "$CHANGED_RECIPES" | jq --arg path "$file" --arg pkg_type "$pkg_type" '. + [{"path": $path, "pkg_type": $pkg_type}]')
               fi
             done
           fi
@@ -117,6 +119,7 @@ jobs:
 
           echo "$CHANGED_RECIPES" | jq -c '.[]' | while read -r recipe; do
             path=$(echo "$recipe" | jq -r '.path')
+            pkg_type=$(echo "$recipe" | jq -r '.pkg_type')
             pkg_name=$(basename "$(dirname "$path")")
 
             # Skip cache check if force rebuild
@@ -139,7 +142,7 @@ jobs:
               cached_status=$(echo "$cached_info" | jq -r '.last_build_status // ""' 2>/dev/null || echo "")
 
               if [ "$cached_hash" == "$current_hash" ] && [ "$cached_status" == "success" ]; then
-                echo "::notice::Skipping $pkg_name - already built with same hash"
+                echo "::notice::Skipping $pkg_name - already built with same hash" >&2
                 continue
               fi
             fi
@@ -172,7 +175,7 @@ jobs:
     uses: ./.github/workflows/matrix_builds.yaml
     with:
       sbuild-url: "https://raw.githubusercontent.com/${{ github.repository }}/refs/heads/main/${{ matrix.recipe.path }}"
-      ghcr-url: ${{ contains(matrix.recipe.path, 'packages/') && format('ghcr.io/{0}/pkgcache', github.repository_owner) || format('ghcr.io/{0}/bincache', github.repository_owner) }}
+      ghcr-url: ghcr.io/${{ github.repository_owner }}
       pkg-family: ${{ github.event.repository.name }}
       rebuild: true
       logs: true
