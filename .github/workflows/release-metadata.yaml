@@ -55,22 +55,24 @@ jobs:
 
       - name: Filter recipes by pkg_type
         run: |
-          mkdir -p /tmp/bincache-recipes /tmp/pkgcache-recipes /tmp/output
+          mkdir -p /tmp/bincache-recipes/binaries /tmp/pkgcache-recipes/packages /tmp/output
 
           # Find all recipes and filter by pkg_type
           for recipe in $(find binaries packages -name "*.yaml" -type f 2>/dev/null); do
             pkg_type=$(grep -E "^pkg_type:" "$recipe" | head -1 | sed 's/pkg_type:[[:space:]]*//; s/^["'"'"']//; s/["'"'"']$//' || echo "")
 
-            # Create directory structure and copy recipe
-            rel_path=$(dirname "$recipe")
+            # Extract package name (parent directory)
+            pkg_name=$(basename "$(dirname "$recipe")")
+            recipe_name=$(basename "$recipe")
+
             if [ "$pkg_type" = "static" ] || [ "$pkg_type" = "dynamic" ]; then
               echo "BINCACHE: $recipe (pkg_type: $pkg_type)"
-              mkdir -p "/tmp/bincache-recipes/$rel_path"
-              cp "$recipe" "/tmp/bincache-recipes/$recipe"
+              mkdir -p "/tmp/bincache-recipes/binaries/$pkg_name"
+              cp "$recipe" "/tmp/bincache-recipes/binaries/$pkg_name/$recipe_name"
             else
               echo "PKGCACHE: $recipe (pkg_type: $pkg_type)"
-              mkdir -p "/tmp/pkgcache-recipes/$rel_path"
-              cp "$recipe" "/tmp/pkgcache-recipes/$recipe"
+              mkdir -p "/tmp/pkgcache-recipes/packages/$pkg_name"
+              cp "$recipe" "/tmp/pkgcache-recipes/packages/$pkg_name/$recipe_name"
             fi
           done
 
