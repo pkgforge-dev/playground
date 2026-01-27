@@ -56,12 +56,12 @@ jobs:
         id: set-matrix
         run: |
           case "${{ inputs.host }}" in
-            "ALL")
-              MATRIX='[
-                {"host": "x86_64-Linux", "runner": "ubuntu-latest"},
-                {"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm"},
-                {"host": "riscv64-Linux", "runner": "ubuntu-24.04-arm"}
-              ]'
+             "ALL")
+               MATRIX='[
+                 {"host": "x86_64-Linux", "runner": "ubuntu-latest"},
+                 {"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm"},
+                 {"host": "riscv64-Linux", "runner": "ubuntu-latest"}
+               ]'
               ;;
             "x86_64-Linux")
               MATRIX='[{"host": "x86_64-Linux", "runner": "ubuntu-latest"}]'
@@ -69,9 +69,9 @@ jobs:
             "aarch64-Linux")
               MATRIX='[{"host": "aarch64-Linux", "runner": "ubuntu-24.04-arm"}]'
               ;;
-            "riscv64-Linux")
-              MATRIX='[{"host": "riscv64-Linux", "runner": "ubuntu-24.04-arm"}]'
-              ;;
+             "riscv64-Linux")
+               MATRIX='[{"host": "riscv64-Linux", "runner": "ubuntu-latest"}]'
+               ;;
             *)
               echo "::error::Invalid host: ${{ inputs.host }}"
               exit 1
@@ -92,6 +92,20 @@ jobs:
       DEBIAN_FRONTEND: noninteractive
       GIT_TERMINAL_PROMPT: 0
     steps:
+      - name: Setup recipe identifier
+        run: |
+          # Extract recipe identifier from URL for artifact naming
+          # e.g., binaries/hello/static.yaml -> hello-static
+          RECIPE_PATH=$(echo "${{ inputs.sbuild-url }}" | grep -oE '(binaries|packages)/[^/]+/[^/]+\.yaml' || echo "")
+          if [[ -n "$RECIPE_PATH" ]]; then
+            PKG_NAME=$(echo "$RECIPE_PATH" | cut -d'/' -f2)
+            RECIPE_NAME=$(basename "$RECIPE_PATH" .yaml)
+            RECIPE_ID="${PKG_NAME}-${RECIPE_NAME}"
+          else
+            RECIPE_ID=$(echo -n "${{ inputs.sbuild-url }}" | sha256sum | cut -c1-8)
+          fi
+          echo "RECIPE_ID=${RECIPE_ID}" >> "$GITHUB_ENV"
+
       - name: Setup environment
         id: setup
         env:
@@ -104,14 +118,6 @@ jobs:
           HOST_TRIPLET="${{ matrix.target.host }}"
           echo "HOST_TRIPLET=${HOST_TRIPLET}" >> "$GITHUB_ENV"
 
-          # For RISC-V, we'll use QEMU on ARM runner
-          if [[ "$HOST_TRIPLET" == "riscv64-Linux" ]]; then
-            echo "QEMU_MODE=true" >> "$GITHUB_ENV"
-            NATIVE_ARCH="aarch64"
-          else
-            NATIVE_ARCH="$(uname -m)"
-          fi
-
           # Temp directory
           SYSTMP="$(mktemp -d)"
           echo "SYSTMP=${SYSTMP}" >> "$GITHUB_ENV"
@@ -123,7 +129,7 @@ jobs:
 
           # Install oras
           ORAS_VERSION="1.2.2"
-          case "$NATIVE_ARCH" in
+          case "$(uname -m)" in
             x86_64)  ORAS_ARCH="amd64" ;;
             aarch64) ORAS_ARCH="arm64" ;;
           esac
@@ -132,7 +138,7 @@ jobs:
           oras version
 
           # Install soar
-          SOAR_TRIPLET="${NATIVE_ARCH}-$(uname -s | tr '[:upper:]' '[:lower:]')"
+          SOAR_TRIPLET="$(uname -m)-$(uname -s | tr '[:upper:]' '[:lower:]')"
           curl -fsSL "https://github.com/pkgforge/soar/releases/latest/download/soar-${SOAR_TRIPLET}" \
             -o /tmp/soar && sudo mv /tmp/soar /usr/local/bin/soar && sudo chmod +x /usr/local/bin/soar
           soar --version
@@ -148,7 +154,7 @@ jobs:
           squishy --version || true
 
           # Install appimagetool
-          curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${NATIVE_ARCH}.AppImage" \
+          curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-$(uname -m).AppImage" \
             -o /tmp/appimagetool && sudo mv /tmp/appimagetool /usr/local/bin/appimagetool && sudo chmod +x /usr/local/bin/appimagetool
           appimagetool --version || true
 
@@ -168,30 +174,6 @@ jobs:
           # Parse GHCR URL
           GHCR_REPO="$(echo "${{ inputs.ghcr-url }}" | sed 's|^ghcr.io/||' | tr '[:upper:]' '[:lower:]')"
           echo "GHCR_REPO=${GHCR_REPO}" >> "$GITHUB_ENV"
-
-          # Extract recipe identifier from URL for artifact naming
-          # e.g., binaries/hello/static.yaml -> hello-static
-          RECIPE_PATH=$(echo "${{ inputs.sbuild-url }}" | grep -oE '(binaries|packages)/[^/]+/[^/]+\.yaml' || echo "")
-          if [[ -n "$RECIPE_PATH" ]]; then
-            PKG_NAME=$(echo "$RECIPE_PATH" | cut -d'/' -f2)
-            RECIPE_NAME=$(basename "$RECIPE_PATH" .yaml)
-            RECIPE_ID="${PKG_NAME}-${RECIPE_NAME}"
-          else
-            RECIPE_ID=$(echo -n "${{ inputs.sbuild-url }}" | sha256sum | cut -c1-8)
-          fi
-          echo "RECIPE_ID=${RECIPE_ID}" >> "$GITHUB_ENV"
-
-          # For RISC-V, setup QEMU and download riscv64 binaries
-          if [[ "${QEMU_MODE:-}" == "true" ]]; then
-            sudo apt-get install -y qemu-user-static
-            RISCV_TRIPLET="riscv64-linux"
-            # Download riscv64 sbuild
-            curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-${RISCV_TRIPLET}" \
-              -o "${SYSTMP}/sbuild-riscv64" && chmod +x "${SYSTMP}/sbuild-riscv64"
-            # Download riscv64 soar
-            curl -fsSL "https://github.com/pkgforge/soar/releases/latest/download/soar-${RISCV_TRIPLET}" \
-              -o /tmp/soar-riscv64 && sudo mv /tmp/soar-riscv64 /usr/local/bin/soar-riscv64 && sudo chmod +x /usr/local/bin/soar-riscv64
-          fi
 
       - name: Detect build dependencies
         id: detect-deps
@@ -258,11 +240,9 @@ jobs:
           echo "deps=$FINAL_DEPS" >> $GITHUB_OUTPUT
 
       - name: Check host compatibility
+        if: matrix.target.host != 'riscv64-Linux'
         run: |
           SBUILD="${SYSTMP}/sbuild"
-          if [[ "${QEMU_MODE:-}" == "true" ]]; then
-            SBUILD="${SYSTMP}/sbuild-riscv64"
-          fi
 
           if ! "$SBUILD" info "${{ inputs.sbuild-url }}" --check-host "${HOST_TRIPLET}"; then
             echo "::warning::Recipe not supported on ${HOST_TRIPLET}"
@@ -292,7 +272,7 @@ jobs:
         continue-on-error: true
 
       - name: Install build dependencies
-        if: env.SKIP_BUILD != 'true' && steps.detect-deps.outputs.deps != ''
+        if: env.SKIP_BUILD != 'true' && matrix.target.host != 'riscv64-Linux' && steps.detect-deps.outputs.deps != ''
         env:
           GITHUB_TOKEN: "${{ github.token }}"
         run: |
@@ -352,7 +332,6 @@ jobs:
                   case "$(uname -m)" in
                     x86_64)  GO_ARCH="amd64" ;;
                     aarch64) GO_ARCH="arm64" ;;
-                    riscv64) GO_ARCH="riscv64" ;;
                   esac
                   curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" | sudo tar -xzf - -C /usr/local
                   echo "/usr/local/go/bin" >> "$GITHUB_PATH"
@@ -378,7 +357,6 @@ jobs:
                   case "$(uname -m)" in
                     x86_64)  ZIG_ARCH="x86_64" ;;
                     aarch64) ZIG_ARCH="aarch64" ;;
-                    riscv64) ZIG_ARCH="riscv64" ;;
                   esac
                   curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-${ZIG_ARCH}-${ZIG_VERSION}.tar.xz" \
                     | sudo tar -xJf - -C /usr/local
@@ -416,7 +394,7 @@ jobs:
         continue-on-error: true
 
       - name: Build package
-        if: env.SKIP_BUILD != 'true'
+        if: env.SKIP_BUILD != 'true' && matrix.target.host != 'riscv64-Linux'
         env:
           GHCR_TOKEN: "${{ github.token }}"
           GITHUB_TOKEN: "${{ secrets.RO_GHTOKEN || github.token }}"
@@ -427,9 +405,6 @@ jobs:
           set +e  # Don't exit on error, we want to capture the result
 
           SBUILD="${SYSTMP}/sbuild"
-          if [[ "${QEMU_MODE:-}" == "true" ]]; then
-            SBUILD="${SYSTMP}/sbuild-riscv64"
-          fi
 
           # Output directory
           OUTDIR="${SYSTMP}/output"
@@ -465,25 +440,122 @@ jobs:
             echo "::error::Build failed with status $BUILD_STATUS"
           fi
 
+      - name: Build package (RISC-V via QEMU)
+        if: env.SKIP_BUILD != 'true' && matrix.target.host == 'riscv64-Linux'
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: riscv64
+          distro: ubuntu24.04
+          githubToken: ${{ github.token }}
+          setup: |
+            mkdir -p "${PWD}/riscv64-artifacts"/{output,logs}
+          dockerRunArgs: |
+            --volume "${PWD}/riscv64-artifacts:/host-artifacts"
+            --env-file "${GITHUB_ENV:-/dev/null}"
+          run: |
+            set +e
+
+            SYSTMP="/tmp"
+            BUILD_LOG="${SYSTMP}/build.log"
+            OUTDIR="/tmp/output"
+            mkdir -p "$OUTDIR"
+
+            # Install base packages
+            apt-get update -qq
+            apt-get install -y -qq \
+              ca-certificates curl git jq p7zip-full rsync wget zstd
+
+            # Install oras
+            ORAS_VERSION="1.2.2"
+            curl -fsSL "https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}/oras_${ORAS_VERSION}_linux_riscv64.tar.gz" \
+              | tar -xzf - -C /usr/local/bin oras
+
+            # Install soar
+            curl -fsSL "https://github.com/pkgforge/soar/releases/latest/download/soar-riscv64-linux" \
+              -o /usr/local/bin/soar && chmod +x /usr/local/bin/soar
+
+            # Install sbuild
+            curl -fsSL "https://github.com/pkgforge/sbuilder/releases/download/latest/sbuild-riscv64-linux" \
+              -o /usr/local/bin/sbuild && chmod +x /usr/local/bin/sbuild
+
+            # Install squishy
+            curl -fsSL "https://github.com/pkgforge/squishy-rs/releases/latest/download/squishy-riscv64-linux" \
+              -o /usr/local/bin/squishy && chmod +x /usr/local/bin/squishy
+
+            # Install appimagetool
+            curl -fsSL "https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-riscv64.AppImage" \
+              -o /usr/local/bin/appimagetool && chmod +x /usr/local/bin/appimagetool
+
+            # Install minisign if needed
+            if [ -n "${{ secrets.MINISIGN_KEY }}" ]; then
+              apt-get install -y -qq minisign
+              mkdir -p "${HOME}/.minisign"
+              echo "${{ secrets.MINISIGN_SIGKEY }}" > "${HOME}/.minisign/minisign.key"
+            fi
+
+            # GHCR login
+            echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+            # Parse GHCR URL
+            GHCR_REPO="$(echo "${{ inputs.ghcr-url }}" | sed 's|^ghcr.io/||' | tr '[:upper:]' '[:lower:]')"
+
+            # Build arguments
+            ARGS=(
+              "--outdir" "$OUTDIR"
+              "--ci"
+              "--checksums"
+              "--timeout" "10800"
+              "--push"
+              "--ghcr-repo" "${GHCR_REPO}"
+            )
+
+            [ "${{ inputs.rebuild }}" == "true" ] && ARGS+=("--force")
+            [ "${{ inputs.logs }}" == "true" ] && ARGS+=("--keep")
+            [ "${{ inputs.debug }}" == "true" ] && ARGS+=("--log-level" "debug")
+            [ -n "${{ secrets.MINISIGN_KEY }}" ] && ARGS+=("--sign")
+
+            # Run build
+            echo "::group::Build Output"
+            /usr/local/bin/sbuild build "${ARGS[@]}" "${{ inputs.sbuild-url }}" 2>&1 | tee "$BUILD_LOG"
+            BUILD_STATUS=$?
+            echo "::endgroup::"
+
+            # Sanitize log (remove tokens)
+            sed -i -E '/(ghp_|github_pat|token|secret|access_key)/Id' "$BUILD_LOG" 2>/dev/null || true
+
+            # Copy log and output to host artifacts
+            cp "$BUILD_LOG" /host-artifacts/logs/build.log
+            cp -r "$OUTDIR"/* /host-artifacts/output/ 2>/dev/null || true
+
+            if [ $BUILD_STATUS -ne 0 ]; then
+              echo "BUILD_FAILED=true" >> /host-artifacts/status.txt 2>/dev/null || true
+              echo "::error::Build failed with status $BUILD_STATUS"
+              exit 1
+            fi
+
       - name: Upload build logs
         if: always() && env.SKIP_BUILD != 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: "build-log-${{ env.RECIPE_ID }}-${{ matrix.target.host }}"
-          path: "${{ env.SYSTMP }}/build.log"
+          path: |
+            ${{ env.SYSTMP }}/build.log
+            ${{ github.workspace }}/riscv64-artifacts/build.log
           retention-days: 7
           if-no-files-found: ignore
 
       - name: Attest build provenance
         if: env.SKIP_BUILD != 'true' && env.BUILD_FAILED != 'true'
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v3
         with:
           subject-name: "${{ inputs.pkg-family }}-${{ matrix.target.host }}"
-          subject-path: "${{ env.SBUILD_OUTDIR }}/**"
+          subject-path: |
+            ${{ env.SBUILD_OUTDIR }}/**
+            ${{ github.workspace }}/riscv64-artifacts/output/**
         continue-on-error: true
 
       - name: Verify build
-        if: env.SKIP_BUILD != 'true'
+        if: env.SKIP_BUILD != 'true' && matrix.target.host != 'riscv64-Linux'
         run: |
           if [[ "${BUILD_FAILED:-}" == "true" ]]; then
             echo "::error::Build failed"
@@ -491,8 +563,18 @@ jobs:
           fi
           echo "Build completed successfully"
 
+      - name: Verify build (RISC-V)
+        if: env.SKIP_BUILD != 'true' && matrix.target.host == 'riscv64-Linux'
+        run: |
+          if [[ -f "${{ github.workspace }}/riscv64-artifacts/status.txt" ]]; then
+            echo "::error::Build failed"
+            cat "${{ github.workspace }}/riscv64-artifacts/status.txt"
+            exit 1
+          fi
+          echo "Build completed successfully"
+
       - name: Create build status file
-        if: always()
+        if: always() && matrix.target.host != 'riscv64-Linux'
         run: |
           STATUS="success"
           if [[ "${BUILD_FAILED:-}" == "true" ]]; then
@@ -510,12 +592,32 @@ jobs:
             --arg ghcr "$GHCR_URL" \
             '{status: $status, host: $host, recipe_url: $url, ghcr_url: $ghcr}' > "${SYSTMP}/build-status.json"
 
+      - name: Create build status file (RISC-V)
+        if: always() && matrix.target.host == 'riscv64-Linux'
+        run: |
+          STATUS="success"
+          if [[ -f "${{ github.workspace }}/riscv64-artifacts/status.txt" ]]; then
+            STATUS="failure"
+          fi
+
+          GHCR_URL="${GHCRPKG_URL:-}"
+
+          mkdir -p "${{ github.workspace }}/riscv64-artifacts"
+
+          jq -n \
+            --arg status "$STATUS" \
+            --arg host "${{ matrix.target.host }}" \
+            --arg url "${{ inputs.sbuild-url }}" \
+            --arg ghcr "$GHCR_URL" \
+            '{status: $status, host: $host, recipe_url: $url, ghcr_url: $ghcr}' > "${{ github.workspace }}/riscv64-artifacts/build-status.json"
+
       - name: Upload build status
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: "build-status-${{ env.RECIPE_ID }}-${{ matrix.target.host }}"
           path: |
             ${{ env.SYSTMP }}/build-status.json
+            ${{ github.workspace }}/riscv64-artifacts/build-status.json
           retention-days: 1
           if-no-files-found: ignore

@@ -26,7 +26,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -78,6 +78,7 @@ jobs:
             recipe_path=$(echo "$pkg_data" | jq -r '.recipe_path')
             old_ver=$(echo "$pkg_data" | jq -r '.current_version')
             new_ver=$(echo "$pkg_data" | jq -r '.upstream_version')
+            new_remote_ver=$(echo "$pkg_data" | jq -r '.upstream_remote_version // empty')
 
             # Sanitize version for branch name
             safe_ver=$(echo "$new_ver" | tr -cs '[:alnum:].-' '-' | sed 's/-$//')
@@ -129,8 +130,19 @@ jobs:
                 sed -i "/^pkg_id:/a pkgver: \"${new_ver}\"" "$recipe_path"
               fi
 
+              # Update remote_pkgver if provided
+              if [ -n "$new_remote_ver" ]; then
+                if grep -q "^remote_pkgver:" "$recipe_path"; then
+                  # Update existing remote_pkgver
+                  sed -i "s/^remote_pkgver:.*/remote_pkgver: \"${new_remote_ver}\"/" "$recipe_path"
+                else
+                  # Add remote_pkgver field after pkgver
+                  sed -i "/^pkgver:/a remote_pkgver: \"${new_remote_ver}\"" "$recipe_path"
+                fi
+              fi
+
               git add "$recipe_path"
-              git commit -m "chore(bot): update ${pkg_name} to ${new_ver}"
+              git commit -m "${pkg_name}: update to ${new_ver}"
               git push origin "$branch"
 
               # Extract metadata from recipe file directly
@@ -226,7 +238,7 @@ jobs:
           )
 
               gh pr create \
-                --title "⬆️ Update ${pkg_name}: ${old_ver} → ${new_ver}" \
+                --title "${pkg_name}: ${old_ver} -> ${new_ver}" \
                 --body "$PR_BODY" \
                 --label "bot,update" \
                 --head "$branch" \
@@ -248,7 +260,7 @@ jobs:
 
       - name: Upload updates report
         if: always() && steps.check.outputs.update_count > 0
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: updates-report
           path: /tmp/updates.json

@@ -41,7 +41,7 @@ jobs:
       has_changes: ${{ steps.filter.outputs.has_changes }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 2
 
@@ -139,7 +139,7 @@ jobs:
               cached_status=$(echo "$cached_info" | jq -r '.last_build_status // ""' 2>/dev/null || echo "")
 
               if [ "$cached_hash" == "$current_hash" ] && [ "$cached_status" == "success" ]; then
-                echo "::notice::Skipping $pkg_name - already built with same hash"
+                echo "::notice::Skipping $pkg_name - already built with same hash" >&2
                 continue
               fi
             fi
@@ -185,7 +185,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Download tools
         run: |
@@ -203,7 +203,7 @@ jobs:
             sbuild-cache --cache /tmp/build_cache.sdb init
 
       - name: Download build status artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: build-status-*
           path: /tmp/build-statuses
