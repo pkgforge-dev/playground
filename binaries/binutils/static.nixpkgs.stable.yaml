@@ -5,7 +5,7 @@ _disabled: false
 pkg: "binutils"
 pkg_id: "nixpkgs.binutils"
 pkg_type: "static"
-pkgver: "0.0.0"
+pkgver: ""
 category:
   - "ConsoleOnly"
   - "Utility"
