@@ -26,7 +26,7 @@ jobs:
       has_packages: ${{ steps.find.outputs.has_packages }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Find rolling packages
         id: find
@@ -84,7 +84,7 @@ jobs:
       has_updates: ${{ steps.check.outputs.has_updates }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Install skopeo
         run: |
